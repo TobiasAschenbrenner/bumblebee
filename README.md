@@ -1,7 +1,8 @@
 # Bumblebee 🐝
 
 Bumblebee is a small terminal companion for my Bitcraze Crazyflie 2.1+.
-It provides friendly diagnostics, live battery telemetry, and guarded flight routines.
+It provides friendly diagnostics, live battery telemetry, AI-deck camera streaming,
+and guarded flight routines.
 
 ---
 
@@ -9,6 +10,7 @@ It provides friendly diagnostics, live battery telemetry, and guarded flight rou
 
 - Pre-flight diagnostics
 - Battery monitoring
+- Live AI-deck camera viewing and recording
 - A flight selector for current and future routines
 - A guarded takeoff, hover, and landing routine
 - Automatic landing when a safety check fails
@@ -51,9 +53,22 @@ the drone on a level, textured surface with plenty of clear space around it.
 ```bash
 ./diagnose   # read-only preflight report
 ./battery    # live battery dashboard
+./camera     # view and record the AI-deck camera
 ./fly        # choose a flight routine
 ./hover      # open the hover routine directly
 ```
+
+For the camera, power on the Crazyflie, connect the Mac to the AI-deck's Wi-Fi
+network (usually `WiFi streaming example` with the original streamer), and run:
+
+```bash
+./camera
+```
+
+The camera window opens after the first frame arrives. Press **R** to start or
+stop recording and **Q** or **Escape** to close it. Recordings are saved under
+`recordings/` and are ignored by Git. The camera command never connects to the
+Crazyradio or sends motor commands.
 
 Run `./diagnose` first and continue only when Bumblebee reports
 **READY FOR FLIGHT**.
@@ -75,8 +90,10 @@ During flight:
 
 ```text
 bumblebee/
-├── battery, diagnose, fly, hover    Friendly command shortcuts
+├── battery, camera, diagnose, fly, hover
+│                                      Friendly command shortcuts
 ├── src/bumblebee/
+│   ├── camera/                      AI-deck streaming and recording
 │   ├── commands/                    Command-line workflows
 │   ├── flights/                     Independent flight routines
 │   ├── ui/                          Terminal dashboards

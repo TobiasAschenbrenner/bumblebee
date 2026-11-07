@@ -5,6 +5,7 @@
 .ruff_cache/
 build/
 dist/
+recordings/
 *.egg-info/
 .DS_Store
 __pycache__/
