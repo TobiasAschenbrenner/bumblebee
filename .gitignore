@@ -1,0 +1,11 @@
+.venv/
+.cache/
+.uv-cache/
+.uv-tools/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+.DS_Store
+__pycache__/
+*.pyc
