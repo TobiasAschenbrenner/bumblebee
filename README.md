@@ -7,12 +7,11 @@ It provides friendly diagnostics, live battery telemetry, and guarded flight rou
 
 ## ✨ Features
 
-- Styled preflight diagnostics
-- Live, human-readable battery monitoring
+- Pre-flight diagnostics
+- Battery monitoring
 - A flight selector for current and future routines
 - A guarded takeoff, hover, and landing routine
 - Automatic landing when a safety check fails
-- Flow deck V2 support with the AI-deck left safely idle
 
 ---
 
