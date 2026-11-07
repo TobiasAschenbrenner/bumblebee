@@ -1,0 +1,101 @@
+diff --git a/main/wifi.c b/main/wifi.c
+index 6dea7ea..4464795 100644
+--- a/main/wifi.c
++++ b/main/wifi.c
+@@ -38,6 +38,7 @@
+  #define BLINK_GPIO 4
+  
+  static struct sockaddr_in udpDestAddr;
++ static bool udpTargetConfigured = false;
+  
+  static esp_routable_packet_t rxp;
+  static esp_routable_packet_t txp;
+@@ -162,6 +163,18 @@
+    udpDestAddr.sin_family = AF_INET;
+    udpDestAddr.sin_port = htons(port);
+    inet_pton(AF_INET, ip, &udpDestAddr.sin_addr);
++   udpTargetConfigured = true;
++ }
++
++ static void notify_client_connected() {
++   cpxInitRoute(CPX_T_ESP32, CPX_T_GAP8, CPX_F_WIFI_CTRL, &txp.route);
++   txp.data[0] = WIFI_CTRL_STATUS_CLIENT_CONNECTED;
++   txp.data[1] = 1;
++   txp.dataLength = 2;
++   espAppSendToRouterBlocking(&txp);
++
++   txp.route.destination = CPX_T_STM32;
++   espAppSendToRouterBlocking(&txp);
+  }
+  
+  
+@@ -319,43 +332,9 @@
+  
+    wifi_bind_socket();
+  
+-   // TODO: UDP
+-   wifi_set_udp_target("192.168.1.3", 5001); // Replace IP and port with your host IP and receiver port
+-   ESP_LOGI(TAG, "UDP target set");
+- 
+    xEventGroupSetBits(startUpEventGroup, START_UP_MAIN_TASK);
+    while (1) {
+-     //blink_period_ms = 500;
+-     // wifi_wait_for_socket_connected();
+-     ESP_LOGI(TAG, "Client connected");
+- 
+-     //blink_period_ms = 100;
+- 
+-     // Not thread safe!
+-     cpxInitRoute(CPX_T_ESP32, CPX_T_GAP8, CPX_F_WIFI_CTRL, &txp.route);
+-     txp.data[0] = WIFI_CTRL_STATUS_CLIENT_CONNECTED;
+-     txp.data[1] = 1;    // connected
+-     txp.dataLength = 2;
+-     espAppSendToRouterBlocking(&txp);
+- 
+-     txp.route.destination = CPX_T_STM32;
+-     espAppSendToRouterBlocking(&txp);
+-
+      vTaskDelay(pdMS_TO_TICKS(5000));
+- 
+-     // Probably not the best, should be handled in some other way?
+-    //  wifi_wait_for_disconnect();
+-     // ESP_LOGI(TAG, "Client disconnected");
+- 
+-     // Not thread safe!
+-    //  cpxInitRoute(CPX_T_ESP32, CPX_T_GAP8, CPX_F_WIFI_CTRL, &txp.route);
+-    //  txp.data[0] = WIFI_CTRL_STATUS_CLIENT_CONNECTED;
+-    //  txp.data[1] = 0;    // disconnected
+-    //  txp.dataLength = 2;
+-    //  espAppSendToRouterBlocking(&txp);
+- 
+-    //  txp.route.destination = CPX_T_STM32;
+-    //  espAppSendToRouterBlocking(&txp);
+    }
+  }
+  
+@@ -382,7 +361,7 @@
+  }
+  
+  void wifi_send_packet(const char * buffer, size_t size) {
+-   if (serverSock >= 0) {
++   if (serverSock >= 0 && udpTargetConfigured) {
+      int err = sendto(serverSock, buffer, size, 0,
+                       (struct sockaddr *)&udpDestAddr, sizeof(udpDestAddr));
+      if (err < 0) {
+@@ -440,6 +419,7 @@
+             ESP_LOGI(TAG, " Received FER magic packet — setting target to %s:%d", ip_str, client_port);
+         
+             wifi_set_udp_target(ip_str, client_port);
++            notify_client_connected();
+             continue; // Don't enqueue the magic
+           }
+         
+@@ -505,5 +485,5 @@
+  
+    ESP_LOGI("WIFI", "Wifi initialized");
+  }
+- 
+- 
+\ No newline at end of file
++
++

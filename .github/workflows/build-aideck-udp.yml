@@ -8,16 +8,26 @@ permissions:
 
 jobs:
   build:
-    name: Build pinned community firmware
+    name: Build pinned UDP and recovery firmware
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check out Bumblebee build inputs
+        uses: actions/checkout@v4
+        with:
+          path: bumblebee
+
       - name: Check out ESP32 UDP firmware
         uses: actions/checkout@v4
         with:
           repository: larics/aideck-esp-firmware-udp
           ref: 2b7152366048bbfa98eea343f68264c52ba0bd0d
           path: esp32
+
+      - name: Require a UDP client handshake before streaming
+        run: >-
+          git -C esp32 apply
+          "$GITHUB_WORKSPACE/bumblebee/firmware/patches/aideck-esp-udp-client-handshake.patch"
 
       - name: Build ESP32 application
         run: >-
@@ -41,11 +51,37 @@ jobs:
           bitcraze/aideck:4.22.0.1@sha256:038197df9cb86ccf8e6649e93dd0cf23781830e136288523983768918851633e
           tools/build/build
 
+      - name: Check out Crazyflie access-point firmware
+        uses: actions/checkout@v4
+        with:
+          repository: bitcraze/crazyflie-firmware
+          ref: 16c5630707e92830dcd16455a57b5560e5838735
+          path: crazyflie
+          submodules: recursive
+
+      - name: Build Crazyflie access-point firmware
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/crazyflie:/module" \
+            bitcraze/builder:40@sha256:d2aa8f9327049d1b3c184f3aa33b81432f2cd07986a3b193b2de26dcf7387112 \
+            bash -c '
+              make cf2_defconfig &&
+              sed -i "/CONFIG_DECK_AI_WIFI_/d" .config &&
+              sed -i "/CONFIG_DECK_AI_SSID=/d; /CONFIG_DECK_AI_PASSWORD=/d" .config &&
+              printf "%s\n" \
+                "CONFIG_DECK_AI_WIFI_SETUP_AP=y" \
+                "CONFIG_DECK_AI_SSID=\"WiFi streaming example\"" \
+                "CONFIG_DECK_AI_PASSWORD=\"\"" >> .config &&
+              make olddefconfig &&
+              ./tools/build/build PLATFORM=cf2 UNIT_TEST_STYLE=min
+            '
+
       - name: Collect firmware and checksums
         run: |
           mkdir -p dist
           cp esp32/build/aideck_esp.bin dist/aideck_esp_udp.bin
           cp gap8/examples/other/wifi-img-streamer/BUILD/GAP8_V2/GCC_RISCV_FREERTOS/target.board.devices.flash.img dist/aideck_gap8_udp_streamer.bin
+          cp crazyflie/build/cf2.bin dist/cf2-2025.02-aideck-ap.bin
           cd dist
           sha256sum *.bin > SHA256SUMS
 

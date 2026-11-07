@@ -8,9 +8,17 @@ forks:
 - GAP8: `larics/aideck-gap8-examples@124729b2a9f98809c5caed841a29701aab3221fb`
 
 The manual `Build AI-deck UDP firmware` GitHub Actions workflow builds both
-applications and publishes a checksummed artifact. No Wi-Fi credentials are
-included; the GAP8 application creates the `WiFi streaming example` access
-point.
+deck applications plus a matching Crazyflie firmware and publishes a
+checksummed artifact:
+
+- `cf2-2025.02-aideck-ap.bin` starts the open `WiFi streaming example` access
+  point.
+- `aideck_esp_udp.bin` forwards camera packets only after a viewer registers
+  itself with the `FER` UDP handshake. This Bumblebee patch prevents an absent
+  viewer from flooding the Crazyflie link with failed sends.
+- `aideck_gap8_udp_streamer.bin` captures and encodes the camera frames.
+
+No private Wi-Fi credentials are included.
 
 ## Restore official firmware
 
@@ -22,10 +30,13 @@ this order:
    [aideck-esp-firmware 2025.02](https://github.com/bitcraze/aideck-esp-firmware/releases/tag/2025.02)
 2. GAP8 `aideck_gap8_wifi_img_streamer_with_ap.bin` from
    [aideck-gap8-examples 2026.10.1](https://github.com/bitcraze/aideck-gap8-examples/releases/tag/2026.10.1)
+3. The preferred official Crazyflie 2.x firmware from
+   [crazyflie-firmware releases](https://github.com/bitcraze/crazyflie-firmware/releases)
 
 ```bash
 cfloader flash aideck_esp.bin deck-bcAI:esp-fw -w radio://0/80/2M
 cfloader flash aideck_gap8_wifi_img_streamer_with_ap.bin deck-bcAI:gap8-fw -w radio://0/80/2M
+cfloader flash cf2.bin stm32-fw -w radio://0/80/2M
 ```
 
 Keep the Crazyflie powered throughout each command and wait for `100%` before
