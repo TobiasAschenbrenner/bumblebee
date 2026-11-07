@@ -17,12 +17,15 @@ def build_camera_dashboard(
     *,
     host: str,
     port: int,
+    transport: str,
     status: str,
     frame: CameraFrame | None,
     frames_per_second: float,
     frame_age_seconds: float | None,
     frames_received: int,
     frames_skipped: int,
+    incomplete_frames: int,
+    decode_failures: int,
     recording: bool,
     saved_frames: int,
     recording_directory: Path | None,
@@ -35,6 +38,7 @@ def build_camera_dashboard(
     details.add_column()
     details.add_row("Connection", Text(status, style=status_style))
     details.add_row("AI-deck", f"{host}:{port}")
+    details.add_row("Transport", transport)
     details.add_row(
         "Image",
         "Waiting for first frame"
@@ -52,6 +56,8 @@ def build_camera_dashboard(
     )
     details.add_row("Frames received", str(frames_received))
     details.add_row("Viewer skipped", str(frames_skipped))
+    details.add_row("Incomplete frames", str(incomplete_frames))
+    details.add_row("Decode failures", str(decode_failures))
     details.add_row(
         "Recording",
         Text(

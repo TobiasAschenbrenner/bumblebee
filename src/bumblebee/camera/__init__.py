@@ -2,6 +2,7 @@
 
 from bumblebee.camera.protocol import (
     AIdeckCameraClient,
+    AIdeckUDPCameraClient,
     CameraEncoding,
     CameraFrame,
     CameraStreamError,
@@ -9,6 +10,7 @@ from bumblebee.camera.protocol import (
 
 __all__ = [
     "AIdeckCameraClient",
+    "AIdeckUDPCameraClient",
     "CameraEncoding",
     "CameraFrame",
     "CameraStreamError",

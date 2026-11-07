@@ -6,7 +6,7 @@ import queue
 import threading
 
 from bumblebee.camera.protocol import (
-    AIdeckCameraClient,
+    CameraClient,
     CameraFrame,
     CameraStreamError,
     _StreamStopped,
@@ -16,7 +16,7 @@ from bumblebee.camera.protocol import (
 class CameraStream:
     """Keep only the newest frame so the preview stays responsive."""
 
-    def __init__(self, client: AIdeckCameraClient) -> None:
+    def __init__(self, client: CameraClient) -> None:
         self.client = client
         self.frames_received = 0
         self.frames_skipped = 0
@@ -46,6 +46,10 @@ class CameraStream:
         self.client.close()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
+
+    @property
+    def incomplete_frames(self) -> int:
+        return self.client.dropped_frames
 
     def _receive(self) -> None:
         while not self._stop_event.is_set():

@@ -68,7 +68,9 @@ network (usually `WiFi streaming example` with the original streamer), and run:
 The camera window opens after the first frame arrives. Press **R** to start or
 stop recording and **Q** or **Escape** to close it. Recordings are saved under
 `recordings/` and are ignored by Git. The camera command never connects to the
-Crazyradio or sends motor commands.
+Crazyradio or sends motor commands. It automatically detects the official TCP
+streamer or Bumblebee's optional UDP streamer; use `--transport tcp` or
+`--transport udp` to select one explicitly while troubleshooting.
 
 Run `./diagnose` first and continue only when Bumblebee reports
 **READY FOR FLIGHT**.

@@ -1,4 +1,4 @@
-"""View and optionally record the original AI-deck Wi-Fi camera stream."""
+"""View and optionally record an AI-deck Wi-Fi camera stream."""
 
 from __future__ import annotations
 
@@ -17,6 +17,8 @@ from bumblebee.camera.protocol import (
     DEFAULT_CAMERA_HOST,
     DEFAULT_CAMERA_PORT,
     AIdeckCameraClient,
+    AIdeckUDPCameraClient,
+    CameraClient,
     CameraFrame,
     CameraStreamError,
 )
@@ -53,7 +55,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--port",
         type=int,
         default=DEFAULT_CAMERA_PORT,
-        help=f"AI-deck TCP port (default: {DEFAULT_CAMERA_PORT})",
+        help=f"AI-deck camera port (default: {DEFAULT_CAMERA_PORT})",
+    )
+    parser.add_argument(
+        "--transport",
+        choices=("auto", "tcp", "udp"),
+        default="auto",
+        help="camera transport (default: auto)",
+    )
+    parser.add_argument(
+        "--listen-port",
+        type=int,
+        default=5001,
+        help="local UDP receiver port (default: 5001)",
     )
     parser.add_argument(
         "--record",
@@ -113,6 +127,37 @@ def _frame_rate(timestamps: deque[float]) -> float:
     return 0.0 if elapsed <= 0 else (len(timestamps) - 1) / elapsed
 
 
+def _connect_client(args: argparse.Namespace) -> CameraClient:
+    if args.transport == "udp":
+        client = AIdeckUDPCameraClient(
+            args.host,
+            args.port,
+            listen_port=args.listen_port,
+        )
+        client.connect()
+        return client
+
+    tcp_client = AIdeckCameraClient(
+        args.host,
+        args.port,
+        connect_timeout=1.0 if args.transport == "auto" else 5.0,
+    )
+    try:
+        tcp_client.connect()
+        return tcp_client
+    except CameraStreamError:
+        if args.transport == "tcp":
+            raise
+
+    udp_client = AIdeckUDPCameraClient(
+        args.host,
+        args.port,
+        listen_port=args.listen_port,
+    )
+    udp_client.connect()
+    return udp_client
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     recorder = CameraRecorder(args.output.expanduser())
@@ -122,12 +167,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     timestamps: deque[float] = deque(maxlen=60)
     started_at = time.monotonic()
     window_opened = False
+    decode_failures = 0
 
     with CONSOLE.status(
         f"[cyan]Connecting to the AI-deck camera at {args.host}:{args.port}…[/cyan]"
     ):
-        client = AIdeckCameraClient(args.host, args.port)
-        client.connect()
+        client = _connect_client(args)
 
     stream = CameraStream(client)
     stream.start()
@@ -136,12 +181,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             build_camera_dashboard(
                 host=args.host,
                 port=args.port,
+                transport=client.transport_name,
                 status="Connected · waiting for images",
                 frame=None,
                 frames_per_second=0.0,
                 frame_age_seconds=None,
                 frames_received=0,
                 frames_skipped=0,
+                incomplete_frames=0,
+                decode_failures=0,
                 recording=recording,
                 saved_frames=0,
                 recording_directory=None,
@@ -152,11 +200,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             while True:
                 frame = stream.latest()
                 if frame is not None:
-                    latest_frame = frame
-                    latest_image = decode_frame(frame)
-                    timestamps.append(frame.received_at)
-                    if recording:
-                        recorder.save(latest_image, frame)
+                    try:
+                        decoded_image = decode_frame(frame)
+                    except CameraStreamError:
+                        decode_failures += 1
+                    else:
+                        latest_frame = frame
+                        latest_image = decoded_image
+                        timestamps.append(frame.received_at)
+                        if recording:
+                            recorder.save(latest_image, frame)
 
                 now = time.monotonic()
                 frames_per_second = _frame_rate(timestamps)
@@ -173,8 +226,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     raise CameraStreamError(
                         "Connected, but no complete camera frame arrived for "
                         f"{args.stream_timeout:g} seconds. Power-cycle the Crazyflie, "
-                        "reconnect to its Wi-Fi, and check that the original image "
-                        "streamer firmware is running."
+                        "reconnect to its Wi-Fi, and confirm that the selected transport "
+                        "matches the installed streamer firmware."
                     )
 
                 if latest_image is not None:
@@ -211,12 +264,15 @@ def main(argv: Sequence[str] | None = None) -> int:
                     build_camera_dashboard(
                         host=args.host,
                         port=args.port,
+                        transport=client.transport_name,
                         status=status,
                         frame=latest_frame,
                         frames_per_second=frames_per_second,
                         frame_age_seconds=frame_age,
                         frames_received=stream.frames_received,
                         frames_skipped=stream.frames_skipped,
+                        incomplete_frames=stream.incomplete_frames,
+                        decode_failures=decode_failures,
                         recording=recording,
                         saved_frames=recorder.saved_frames,
                         recording_directory=recorder.session_directory,

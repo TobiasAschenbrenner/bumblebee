@@ -10,9 +10,11 @@ import numpy as np
 from bumblebee.camera.images import decode_frame
 from bumblebee.camera.protocol import (
     AIdeckCameraClient,
+    AIdeckUDPCameraClient,
     CameraEncoding,
     CameraFrame,
     CameraStreamError,
+    UDPFrameAssembler,
 )
 from bumblebee.camera.recording import CameraRecorder
 
@@ -86,6 +88,68 @@ class CameraProtocolTests(TestCase):
             self.assertRaisesRegex(CameraStreamError, "AI-deck Wi-Fi network"),
         ):
             AIdeckCameraClient().connect()
+
+
+class UDPFrameAssemblerTests(TestCase):
+    @staticmethod
+    def _header(image_size: int) -> bytes:
+        payload = struct.pack(
+            "<BHHBBI",
+            0xBC,
+            324,
+            244,
+            1,
+            int(CameraEncoding.JPEG),
+            image_size,
+        )
+        return _packet(payload)
+
+    def test_reassembles_jpeg_from_datagrams(self) -> None:
+        assembler = UDPFrameAssembler()
+        image = b"\xff\xd8camera-data\xff\xd9"
+
+        self.assertIsNone(assembler.add_datagram(self._header(len(image)), 1.0))
+        self.assertIsNone(assembler.add_datagram(_packet(image[:5]), 1.1))
+        frame = assembler.add_datagram(_packet(image[5:]), 1.2)
+
+        assert frame is not None
+        self.assertEqual(image, frame.data)
+        self.assertEqual(CameraEncoding.JPEG, frame.encoding)
+        self.assertAlmostEqual(0.2, frame.transfer_seconds)
+
+    def test_new_header_drops_incomplete_frame(self) -> None:
+        assembler = UDPFrameAssembler()
+        assembler.add_datagram(self._header(20))
+        assembler.add_datagram(_packet(b"partial"))
+
+        assembler.add_datagram(self._header(10))
+
+        self.assertEqual(1, assembler.dropped_frames)
+
+    def test_ignores_malformed_datagram(self) -> None:
+        assembler = UDPFrameAssembler()
+
+        self.assertIsNone(assembler.add_datagram(b"bad"))
+
+        self.assertEqual(1, assembler.malformed_packets)
+
+    def test_udp_client_sends_handshake_and_receives_frame(self) -> None:
+        image = b"\xff\xd8camera-data\xff\xd9"
+        connection = Mock()
+        connection.recvfrom.side_effect = [
+            (self._header(len(image)), ("192.168.4.1", 5000)),
+            (_packet(image), ("192.168.4.1", 5000)),
+        ]
+        with patch(
+            "bumblebee.camera.protocol.socket.socket",
+            return_value=connection,
+        ):
+            client = AIdeckUDPCameraClient(handshake_interval=60)
+            client.connect()
+            frame = client.read_frame()
+
+        connection.sendto.assert_called_once_with(b"FER", ("192.168.4.1", 5000))
+        self.assertEqual(image, frame.data)
 
 
 class CameraImageTests(TestCase):
