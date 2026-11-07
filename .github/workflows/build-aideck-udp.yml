@@ -1,0 +1,58 @@
+name: Build AI-deck UDP firmware
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build pinned community firmware
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out ESP32 UDP firmware
+        uses: actions/checkout@v4
+        with:
+          repository: larics/aideck-esp-firmware-udp
+          ref: 2b7152366048bbfa98eea343f68264c52ba0bd0d
+          path: esp32
+
+      - name: Build ESP32 application
+        run: >-
+          docker run --rm
+          -v "$GITHUB_WORKSPACE/esp32:/module"
+          bitcraze/builder
+          bash -c
+          "source /new_home/.espressif/python_env/idf4.3_py3.10_env/bin/activate && ./tools/build/build"
+
+      - name: Check out GAP8 UDP streamer
+        uses: actions/checkout@v4
+        with:
+          repository: larics/aideck-gap8-examples
+          ref: 124729b2a9f98809c5caed841a29701aab3221fb
+          path: gap8
+
+      - name: Build GAP8 access-point streamer
+        run: >-
+          docker run --rm
+          -v "$GITHUB_WORKSPACE/gap8:/module"
+          bitcraze/aideck
+          tools/build/build
+
+      - name: Collect firmware and checksums
+        run: |
+          mkdir -p dist
+          cp esp32/build/aideck_esp.bin dist/aideck_esp_udp.bin
+          cp gap8/examples/other/wifi-img-streamer/BUILD/GAP8_V2/GCC_RISCV_FREERTOS/target.board.devices.flash.img dist/aideck_gap8_udp_streamer.bin
+          cd dist
+          sha256sum *.bin > SHA256SUMS
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aideck-udp-firmware
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
