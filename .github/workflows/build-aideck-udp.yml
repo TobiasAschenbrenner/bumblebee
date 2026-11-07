@@ -44,12 +44,12 @@ jobs:
           ref: 124729b2a9f98809c5caed841a29701aab3221fb
           path: gap8
 
-      - name: Build GAP8 access-point streamer
+      - name: Build GAP8 streamer without Wi-Fi reconfiguration
         run: >-
           docker run --rm
           -v "$GITHUB_WORKSPACE/gap8:/module"
           bitcraze/aideck:4.22.0.1@sha256:038197df9cb86ccf8e6649e93dd0cf23781830e136288523983768918851633e
-          tools/build/build
+          tools/build/make-example examples/other/wifi-img-streamer build image
 
       - name: Check out Crazyflie access-point firmware
         uses: actions/checkout@v4
@@ -59,13 +59,20 @@ jobs:
           path: crazyflie
           submodules: recursive
 
-      - name: Build Crazyflie access-point firmware
+      - name: Build Crazyflie recovery and access-point firmware
         run: |
           docker run --rm \
             -v "$GITHUB_WORKSPACE/crazyflie:/module" \
             bitcraze/builder:40@sha256:d2aa8f9327049d1b3c184f3aa33b81432f2cd07986a3b193b2de26dcf7387112 \
             bash -c '
               make cf2_defconfig &&
+              sed -i "/CONFIG_DECK_AI_WIFI_/d" build/.config &&
+              sed -i "/CONFIG_DECK_AI_SSID=/d; /CONFIG_DECK_AI_PASSWORD=/d" build/.config &&
+              printf "%s\n" \
+                "CONFIG_DECK_AI_WIFI_NO_SETUP=y" >> build/.config &&
+              make olddefconfig &&
+              make -j2 &&
+              cp build/cf2.bin cf2-2025.02-aideck-recovery.bin &&
               sed -i "/CONFIG_DECK_AI_WIFI_/d" build/.config &&
               sed -i "/CONFIG_DECK_AI_SSID=/d; /CONFIG_DECK_AI_PASSWORD=/d" build/.config &&
               printf "%s\n" \
@@ -81,6 +88,7 @@ jobs:
           mkdir -p dist
           cp esp32/build/aideck_esp.bin dist/aideck_esp_udp.bin
           cp gap8/examples/other/wifi-img-streamer/BUILD/GAP8_V2/GCC_RISCV_FREERTOS/target.board.devices.flash.img dist/aideck_gap8_udp_streamer.bin
+          cp crazyflie/cf2-2025.02-aideck-recovery.bin dist/cf2-2025.02-aideck-recovery.bin
           cp crazyflie/build/cf2.bin dist/cf2-2025.02-aideck-ap.bin
           cd dist
           sha256sum *.bin > SHA256SUMS

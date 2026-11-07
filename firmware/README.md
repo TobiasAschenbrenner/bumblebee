@@ -8,14 +8,19 @@ forks:
 - GAP8: `larics/aideck-gap8-examples@124729b2a9f98809c5caed841a29701aab3221fb`
 
 The manual `Build AI-deck UDP firmware` GitHub Actions workflow builds both
-deck applications plus a matching Crazyflie firmware and publishes a
+deck applications plus matching Crazyflie firmware images and publishes a
 checksummed artifact:
 
-- `cf2-2025.02-aideck-ap.bin` starts the open `Bumblebee` access point.
+- `cf2-2025.02-aideck-recovery.bin` temporarily leaves Wi-Fi setup to an
+  already-installed GAP8 image. It is only needed when recovering from a
+  conflicting deck configuration.
+- `cf2-2025.02-aideck-ap.bin` is the final Crazyflie image and starts the open
+  `Bumblebee` access point.
 - `aideck_esp_udp.bin` forwards camera packets only after a viewer registers
   itself with the `FER` UDP handshake. This Bumblebee patch prevents an absent
   viewer from flooding the Crazyflie link with failed sends.
-- `aideck_gap8_udp_streamer.bin` captures and encodes the camera frames.
+- `aideck_gap8_udp_streamer.bin` captures and encodes the camera frames without
+  attempting to create a second Wi-Fi access point.
 
 No private Wi-Fi credentials are included.
 
