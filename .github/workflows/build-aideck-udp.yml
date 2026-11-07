@@ -66,12 +66,12 @@ jobs:
             bitcraze/builder:40@sha256:d2aa8f9327049d1b3c184f3aa33b81432f2cd07986a3b193b2de26dcf7387112 \
             bash -c '
               make cf2_defconfig &&
-              sed -i "/CONFIG_DECK_AI_WIFI_/d" .config &&
-              sed -i "/CONFIG_DECK_AI_SSID=/d; /CONFIG_DECK_AI_PASSWORD=/d" .config &&
+              sed -i "/CONFIG_DECK_AI_WIFI_/d" build/.config &&
+              sed -i "/CONFIG_DECK_AI_SSID=/d; /CONFIG_DECK_AI_PASSWORD=/d" build/.config &&
               printf "%s\n" \
                 "CONFIG_DECK_AI_WIFI_SETUP_AP=y" \
                 "CONFIG_DECK_AI_SSID=\"WiFi streaming example\"" \
-                "CONFIG_DECK_AI_PASSWORD=\"\"" >> .config &&
+                "CONFIG_DECK_AI_PASSWORD=\"\"" >> build/.config &&
               make olddefconfig &&
               ./tools/build/build PLATFORM=cf2 UNIT_TEST_STYLE=min
             '
