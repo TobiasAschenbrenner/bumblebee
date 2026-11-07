@@ -11,8 +11,7 @@ The manual `Build AI-deck UDP firmware` GitHub Actions workflow builds both
 deck applications plus a matching Crazyflie firmware and publishes a
 checksummed artifact:
 
-- `cf2-2025.02-aideck-ap.bin` starts the open `WiFi streaming example` access
-  point.
+- `cf2-2025.02-aideck-ap.bin` starts the open `Bumblebee` access point.
 - `aideck_esp_udp.bin` forwards camera packets only after a viewer registers
   itself with the `FER` UDP handshake. This Bumblebee patch prevents an absent
   viewer from flooding the Crazyflie link with failed sends.
