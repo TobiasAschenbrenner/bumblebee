@@ -23,7 +23,7 @@ jobs:
         run: >-
           docker run --rm
           -v "$GITHUB_WORKSPACE/esp32:/module"
-          bitcraze/builder
+          bitcraze/builder:40@sha256:d2aa8f9327049d1b3c184f3aa33b81432f2cd07986a3b193b2de26dcf7387112
           bash -c
           "source /new_home/.espressif/python_env/idf4.3_py3.10_env/bin/activate && ./tools/build/build"
 
@@ -38,7 +38,7 @@ jobs:
         run: >-
           docker run --rm
           -v "$GITHUB_WORKSPACE/gap8:/module"
-          bitcraze/aideck
+          bitcraze/aideck:4.22.0.1@sha256:038197df9cb86ccf8e6649e93dd0cf23781830e136288523983768918851633e
           tools/build/build
 
       - name: Collect firmware and checksums
