@@ -73,7 +73,7 @@ jobs:
                 "CONFIG_DECK_AI_SSID=\"Bumblebee\"" \
                 "CONFIG_DECK_AI_PASSWORD=\"\"" >> build/.config &&
               make olddefconfig &&
-              ./tools/build/build PLATFORM=cf2 UNIT_TEST_STYLE=min
+              make -j2
             '
 
       - name: Collect firmware and checksums
