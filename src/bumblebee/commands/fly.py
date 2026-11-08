@@ -12,6 +12,7 @@ from bumblebee.config import DEFAULT_RADIO_URI
 from bumblebee.errors import SafetyError
 from bumblebee.flights import AVAILABLE_FLIGHTS, FLIGHTS_BY_KEY
 from bumblebee.flights.base import FlightContext, FlightRoutine
+from bumblebee.models import FlightMode
 from bumblebee.preflight import (
     collect_preflight_snapshot,
     landing_voltage,
@@ -32,6 +33,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--list", action="store_true", help="list flights without connecting"
+    )
+    parser.add_argument(
+        "--mode",
+        choices=tuple(mode.value for mode in FlightMode),
+        help="flight mode (default: safe; acro requires a separate unlock)",
     )
     parser.add_argument(
         "--uri",
@@ -69,6 +75,18 @@ def main(
             return 0
 
     settings = flight.settings_from(args)
+    requested_mode = FlightMode(args.mode) if args.mode else None
+    if flight.requires_acro and requested_mode is FlightMode.SAFE:
+        raise SafetyError(f"{flight.title} requires --mode acro.")
+    if not flight.requires_acro and requested_mode is FlightMode.ACRO:
+        raise SafetyError(
+            f"{flight.title} is a Safe routine and cannot disable its boundaries."
+        )
+    mode = (
+        FlightMode.ACRO
+        if flight.requires_acro
+        else requested_mode or FlightMode.SAFE
+    )
     with CONSOLE.status("[cyan]Preparing Crazyradio PA…[/cyan]"):
         uri = resolve_radio_uri(args.uri)
 
@@ -82,15 +100,31 @@ def main(
                 settings=settings,
                 uri=uri,
                 snapshot=snapshot,
+                mode=mode,
             )
         )
 
+        if mode is FlightMode.ACRO:
+            acro_confirmation = Prompt.ask(
+                "Type [bold red]ACRO[/bold red] exactly to disable the normal "
+                "flight boundaries for this run",
+                default="",
+                show_default=False,
+            )
+            if acro_confirmation != "ACRO":
+                CONSOLE.print(
+                    "[yellow]Cancelled.[/yellow] No motor command was sent."
+                )
+                return 0
+
+        confirmation_word = "FLIP" if flight.requires_acro else "FLY"
         confirmation = Prompt.ask(
-            "Type [bold]FLY[/bold] exactly to arm, or press Return to cancel",
+            f"Type [bold]{confirmation_word}[/bold] exactly to arm, "
+            "or press Return to cancel",
             default="",
             show_default=False,
         )
-        if confirmation != "FLY":
+        if confirmation != confirmation_word:
             CONSOLE.print("[yellow]Cancelled.[/yellow] No motor command was sent.")
             return 0
 
@@ -101,6 +135,7 @@ def main(
                 console=CONSOLE,
                 uri=uri,
                 landing_voltage=landing_voltage(snapshot),
+                mode=mode,
             ),
         )
 

@@ -99,7 +99,8 @@ def read_deck_flag(connection: Any, parameter: str) -> bool:
         return int(connection.cf.param.get_value(parameter)) != 0
     except (KeyError, TypeError, ValueError) as exc:
         raise SafetyError(
-            f"Firmware does not expose {parameter}. Update the Crazyflie firmware first."
+            f"Firmware does not expose {parameter}. "
+            "Update the Crazyflie firmware first."
         ) from exc
 
 
@@ -108,8 +109,16 @@ def read_low_voltage_setting(connection: Any) -> float:
         return float(connection.cf.param.get_value("pm.lowVoltage"))
     except (KeyError, TypeError, ValueError) as exc:
         raise SafetyError(
-            "Firmware does not expose pm.lowVoltage. Update the Crazyflie firmware first."
+            "Firmware does not expose pm.lowVoltage. "
+            "Update the Crazyflie firmware first."
         ) from exc
+
+
+def read_optional_parameter_int(connection: Any, parameter: str) -> int | None:
+    try:
+        return int(connection.cf.param.get_value(parameter), 0)
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 def read_telemetry(connection: Any) -> Telemetry:

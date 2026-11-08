@@ -14,6 +14,7 @@ def snapshot(
     power_state: int = 0,
     flow_deck: bool = True,
     supervisor_info: int | None = 1 << 3,
+    acro_firmware_version: int | None = None,
 ) -> PreflightSnapshot:
     return PreflightSnapshot(
         flow_deck_attached=flow_deck,
@@ -25,6 +26,7 @@ def snapshot(
             supervisor_info=supervisor_info,
             downward_range_mm=42,
         ),
+        acro_firmware_version=acro_firmware_version,
     )
 
 
@@ -54,3 +56,17 @@ class PreflightTests(TestCase):
             FlightRequirements(flow_deck=True),
         )
         self.assertTrue(any("supervisor.info" in issue for issue in issues))
+
+    def test_acro_flight_requires_bumblebee_firmware(self) -> None:
+        issues = preflight_issues(
+            snapshot(),
+            FlightRequirements(flow_deck=True, acro_firmware=True),
+        )
+        self.assertTrue(any("acro firmware" in issue for issue in issues))
+
+    def test_acro_firmware_version_satisfies_requirement(self) -> None:
+        issues = preflight_issues(
+            snapshot(acro_firmware_version=1),
+            FlightRequirements(flow_deck=True, acro_firmware=True),
+        )
+        self.assertEqual([], issues)

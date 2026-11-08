@@ -17,8 +17,8 @@ from cflib.positioning.motion_commander import MotionCommander
 from rich.live import Live
 
 from bumblebee.errors import SafetyError
-from bumblebee.flights.base import FlightContext
-from bumblebee.models import FlightRequirements
+from bumblebee.flights.base import FlightContext, stop_and_disarm
+from bumblebee.models import FlightMode, FlightRequirements
 from bumblebee.safety import DEFAULT_FLIGHT_SAFETY_LIMITS, check_position_safety
 from bumblebee.telemetry import (
     TimedTelemetryLogger,
@@ -44,30 +44,13 @@ def _bounded_float(minimum: float, maximum: float) -> Callable[[str], float]:
     return parse
 
 
-def _stop_and_disarm(connection: Any, context: FlightContext) -> None:
-    operations = (
-        ("motor stop", connection.cf.commander.send_stop_setpoint),
-        ("setpoint release", connection.cf.commander.send_notify_setpoint_stop),
-        ("disarm", lambda: connection.cf.supervisor.send_arming_request(False)),
-    )
-    failed_operations: list[str] = []
-    for name, operation in operations:
-        try:
-            operation()
-        except Exception:  # noqa: BLE001 - cflib transport failures are generic.
-            failed_operations.append(name)
-
-    if failed_operations:
-        failures = ", ".join(failed_operations)
-        context.console.print(f"[bold red]Radio cleanup failed:[/bold red] {failures}")
-
-
 class HoverFlight:
     key = "hover"
     title = "First hover"
     description = "Low takeoff, short hover, and controlled landing."
     requirements_label = "Flow deck V2"
     requirements = FlightRequirements(flow_deck=True)
+    requires_acro = False
 
     def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument(
@@ -151,7 +134,7 @@ class HoverFlight:
                 context.console.print(
                     f"[bold red]Controlled landing command failed:[/bold red] {exc}"
                 )
-            _stop_and_disarm(connection, context)
+            stop_and_disarm(connection, context)
 
     def _monitor_hover(
         self,
@@ -181,12 +164,20 @@ class HoverFlight:
                 voltage = float(data["pm.vbat"])
                 voltage_history.append(voltage)
                 altitude = float(data["stateEstimate.z"])
-                position_check = check_position_safety(
-                    x=float(data["stateEstimate.x"]),
-                    y=float(data["stateEstimate.y"]),
-                    altitude=altitude,
-                    limits=context.safety_limits,
-                )
+                if context.mode is FlightMode.SAFE:
+                    position_check = check_position_safety(
+                        x=float(data["stateEstimate.x"]),
+                        y=float(data["stateEstimate.y"]),
+                        altitude=altitude,
+                        limits=context.safety_limits,
+                    )
+                else:
+                    position_check = check_position_safety(
+                        x=0.0,
+                        y=0.0,
+                        altitude=0.0,
+                        limits=context.safety_limits,
+                    )
                 power_code = int(data["pm.state"])
 
                 phase, message, should_land = self._landing_decision(

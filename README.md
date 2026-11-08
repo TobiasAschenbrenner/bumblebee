@@ -15,6 +15,8 @@ and guarded flight routines.
 - A guarded takeoff, hover, and landing routine
 - Automatic landing when a safety check fails
 - A shared 1.5 m altitude ceiling and 1.5 m flight radius
+- Separate Safe and explicitly unlocked Acro flight modes
+- An experimental, onboard-controlled flip routine
 
 ---
 
@@ -89,6 +91,28 @@ During flight:
 - Press **Return** to land early.
 - Press **Control-C** to request landing and disarm cleanup.
 
+### Experimental flip
+
+The flip is deliberately separate from the normal Safe routines. It requires
+Bumblebee's custom Crazyflie firmware, a freshly charged battery, eye
+protection, and a padded test area with at least 4 × 4 m of clear floor and 3 m
+overhead. The initial profile is experimental and has not yet been tuned for
+the extra weight of the AI-deck and Flow deck.
+
+```bash
+./fly --flight flip
+```
+
+The command stages at 1 m, learns the current airframe's hover thrust, and asks
+for exact `ACRO` and `FLIP` confirmations before triggering anything. The
+maneuver runs on the Crazyflie so radio timing cannot split the flip into
+half-finished phases. Only the tumble detector is suspended, for at most 1.5
+seconds; the other supervisor checks remain active. A radio-loss watchdog cuts
+motor power if its Mac heartbeat disappears. Power-cycle the Crazyflie after
+every Acro run to reset that watchdog.
+
+Do not run the flip indoors near people, pets, walls, windows, or furniture.
+
 ---
 
 ## 📁 Project Structure
@@ -97,6 +121,7 @@ During flight:
 bumblebee/
 ├── battery, camera, diagnose, fly, hover
 │                                      Friendly command shortcuts
+├── firmware/                         Reproducible camera and Acro firmware
 ├── src/bumblebee/
 │   ├── camera/                      AI-deck streaming and recording
 │   ├── commands/                    Command-line workflows

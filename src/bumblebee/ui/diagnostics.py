@@ -73,9 +73,18 @@ def build_diagnostics_dashboard(
         else Text("○ Not detected", style="dim"),
     )
     details.add_row(
+        "Acro firmware",
+        (
+            Text(f"● Version {snapshot.acro_firmware_version}", style="yellow")
+            if snapshot.acro_firmware_version is not None
+            else Text("○ Not installed · Safe flights only", style="dim")
+        ),
+    )
+    details.add_row(
         "Battery",
         Text(
-            f"{telemetry.voltage:.3f} V · {gauge.percentage}% usable · {gauge.status.value}",
+            f"{telemetry.voltage:.3f} V · {gauge.percentage}% usable · "
+            f"{gauge.status.value}",
             style=battery_style,
         ),
     )

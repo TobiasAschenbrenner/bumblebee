@@ -17,6 +17,7 @@ from bumblebee.telemetry import (
     power_state_name,
     read_deck_flag,
     read_low_voltage_setting,
+    read_optional_parameter_int,
     read_telemetry,
 )
 
@@ -27,6 +28,9 @@ def collect_preflight_snapshot(connection: Any) -> PreflightSnapshot:
         ai_deck_attached=read_deck_flag(connection, "deck.bcAI"),
         firmware_low_voltage=read_low_voltage_setting(connection),
         telemetry=read_telemetry(connection),
+        acro_firmware_version=read_optional_parameter_int(
+            connection, "bumblebee.version"
+        ),
     )
 
 
@@ -41,6 +45,10 @@ def preflight_issues(
         issues.append("Flow deck V2 was not detected")
     if requirements.ai_deck and not snapshot.ai_deck_attached:
         issues.append("the AI-deck is required but was not detected")
+    if requirements.acro_firmware and snapshot.acro_firmware_version is None:
+        issues.append(
+            "the Bumblebee acro firmware is required but was not detected"
+        )
     if telemetry.power_state != 0:
         issues.append(
             f"power state is {power_state_name(telemetry.power_state)}; "
@@ -51,7 +59,8 @@ def preflight_issues(
     gauge = battery_gauge(telemetry.voltage)
     if telemetry.voltage < takeoff_voltage:
         issues.append(
-            f"battery is {telemetry.voltage:.2f} V; at least {takeoff_voltage:.2f} V is required"
+            f"battery is {telemetry.voltage:.2f} V; at least "
+            f"{takeoff_voltage:.2f} V is required"
         )
     elif gauge.percentage < MINIMUM_TAKEOFF_PERCENTAGE:
         issues.append(

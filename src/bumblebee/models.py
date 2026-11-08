@@ -12,6 +12,11 @@ class BatteryStatus(str, Enum):
     LAND = "LAND"
 
 
+class FlightMode(str, Enum):
+    SAFE = "safe"
+    ACRO = "acro"
+
+
 @dataclass(frozen=True)
 class BatteryGauge:
     voltage: float
@@ -33,9 +38,11 @@ class PreflightSnapshot:
     ai_deck_attached: bool
     firmware_low_voltage: float
     telemetry: Telemetry
+    acro_firmware_version: int | None = None
 
 
 @dataclass(frozen=True)
 class FlightRequirements:
     flow_deck: bool = False
     ai_deck: bool = False
+    acro_firmware: bool = False

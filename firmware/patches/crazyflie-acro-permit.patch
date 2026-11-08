@@ -1,0 +1,112 @@
+diff --git a/src/modules/interface/supervisor.h b/src/modules/interface/supervisor.h
+index 46e2be9b..97f5f8c6 100644
+--- a/src/modules/interface/supervisor.h
++++ b/src/modules/interface/supervisor.h
+@@ -125,6 +125,23 @@ bool supervisorIsLocked();
+  */
+ bool supervisorIsCrashed();
+ 
++/**
++ * @brief Temporarily suspend tumble detection for an onboard acrobatic maneuver.
++ *
++ * Emergency stop, the commander watchdog, arming, and all other supervisor
++ * protections remain active. The permit expires automatically and can only be
++ * requested while the Crazyflie is flying.
++ *
++ * @param durationMs requested permit duration in milliseconds
++ * @return true when the permit was granted
++ */
++bool supervisorRequestAcroPermit(const uint16_t durationMs);
++
++/**
++ * @brief Query whether a temporary acro permit is active.
++ */
++bool supervisorIsAcroPermitActive(void);
++
+ /**
+  * @brief Request the system to be recover if crashed.
+  *
+@@ -132,4 +149,4 @@ bool supervisorIsCrashed();
+  * @return true   The request was granted
+  * @return false  The request could not be granted
+  */
+-bool supervisorRequestCrashRecovery(const bool doRecover);
+\ No newline at end of file
++bool supervisorRequestCrashRecovery(const bool doRecover);
+diff --git a/src/modules/src/supervisor.c b/src/modules/src/supervisor.c
+index 86bdc0ff..8d38b758 100644
+--- a/src/modules/src/supervisor.c
++++ b/src/modules/src/supervisor.c
+@@ -49,6 +49,8 @@
+ 
+ #define DEFAULT_EMERGENCY_STOP_WATCHDOG_TIMEOUT (M2T(1000))
+ 
++#define MAX_ACRO_PERMIT_DURATION_MS 1500
++
+ // The minimum time (in ms) we need to see low thrust before saying that we are not flying anymore
+ #define IS_FLYING_HYSTERESIS_THRESHOLD M2T(2000)
+ 
+@@ -85,6 +87,9 @@ typedef struct {
+   // The time (in ticks) of the latest landing event. 0=no landing event yet
+   uint32_t latestLandingTick;
+ 
++  // Expiry of the temporary acro permit. 0=no permit
++  uint32_t acroPermitUntilTick;
++
+   supervisorState_t state;
+ 
+   // Copy of latest conditions, for logging
+@@ -126,6 +131,26 @@ bool supervisorIsCrashed() {
+   return supervisorMem.isCrashed;
+ }
+ 
++static bool isAcroPermitActiveAtTick(const uint32_t currentTick) {
++  const uint32_t expiry = supervisorMem.acroPermitUntilTick;
++  return expiry != 0 && (int32_t)(expiry - currentTick) > 0;
++}
++
++bool supervisorIsAcroPermitActive(void) {
++  return isAcroPermitActiveAtTick(xTaskGetTickCount());
++}
++
++bool supervisorRequestAcroPermit(const uint16_t durationMs) {
++  if (!supervisorIsFlying() || durationMs == 0 ||
++      durationMs > MAX_ACRO_PERMIT_DURATION_MS) {
++    return false;
++  }
++
++  supervisorMem.initialTumbleTick = 0;
++  supervisorMem.acroPermitUntilTick = xTaskGetTickCount() + M2T(durationMs);
++  return true;
++}
++
+ static void supervisorSetLatestArmingTime(SupervisorMem_t* this, const uint32_t currentTick) {
+   this->latestArmingTick = currentTick;
+ }
+@@ -292,6 +317,11 @@ static void postTransitionActions(SupervisorMem_t* this, const supervisorState_t
+     DEBUG_PRINT("Locked, reboot required\n");
+   }
+ 
++  if (newState != supervisorStateFlying &&
++      newState != supervisorStateWarningLevelOut) {
++    this->acroPermitUntilTick = 0;
++  }
++
+   if (newState == supervisorStateCrashed) {
+     DEBUG_PRINT("Crashed, recovery required\n");
+     supervisorRequestCrashRecovery(false);
+@@ -326,7 +356,13 @@ static supervisorConditionBits_t updateAndPopulateConditions(SupervisorMem_t* th
+     conditions |= SUPERVISOR_CB_IS_FLYING;
+   }
+ 
+-  const bool isTumbled = isTumbledCheck(this, sensors, currentTick);
++  const bool acroPermitActive = isAcroPermitActiveAtTick(currentTick);
++  if (acroPermitActive) {
++    this->initialTumbleTick = 0;
++  }
++
++  const bool isTumbled = acroPermitActive ? false :
++    isTumbledCheck(this, sensors, currentTick);
+   if (isTumbled) {
+     if (tumbleCheckEnabled)
+     {
