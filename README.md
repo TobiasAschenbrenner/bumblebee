@@ -105,11 +105,13 @@ the extra weight of the AI-deck and Flow deck.
 
 The command stages at 1 m, learns the current airframe's hover thrust, and asks
 for exact `ACRO` and `FLIP` confirmations before triggering anything. The
-maneuver runs on the Crazyflie so radio timing cannot split the flip into
-half-finished phases. Only the tumble detector is suspended, for at most 1.5
-seconds; the other supervisor checks remain active. A radio-loss watchdog cuts
-motor power if its Mac heartbeat disappears. Power-cycle the Crazyflie after
-every Acro run to reset that watchdog.
+maneuver triggers only after a one-second low-drift window and aborts if the
+staging hover moves more than 0.5 m from takeoff. It then runs on the Crazyflie
+so radio timing cannot split the flip into half-finished phases. Only the tumble
+detector is suspended, for at most 1.5 seconds; the other supervisor checks
+remain active. A radio-loss watchdog cuts motor power if its Mac heartbeat
+disappears. Power-cycle the Crazyflie after every Acro run to reset that
+watchdog.
 
 Do not run the flip indoors near people, pets, walls, windows, or furniture.
 

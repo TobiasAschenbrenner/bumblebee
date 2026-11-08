@@ -7,6 +7,7 @@ import sys
 import time
 from argparse import ArgumentParser, Namespace
 from dataclasses import dataclass
+from math import hypot, isfinite
 from typing import Any
 
 from cflib.crazyflie.log import LogConfig
@@ -24,6 +25,10 @@ from bumblebee.watchdog import EmergencyStopWatchdog
 
 FLIP_REQUEST_MAGIC = 0xB33F
 MINIMUM_FLIP_VOLTAGE = 3.75
+MAXIMUM_STAGING_DISTANCE = 0.50
+MAXIMUM_STAGING_SPEED = 0.12
+STABLE_WINDOW_SECONDS = 1.0
+STAGING_TIMEOUT_SECONDS = 8.0
 
 FLIP_STATE_NAMES = {
     0: "Staging",
@@ -54,6 +59,39 @@ class FlipSettings:
     height: float
     settle_seconds: float
     direction: str
+
+
+@dataclass(frozen=True)
+class StagingSnapshot:
+    altitude: float
+    voltage: float
+    horizontal_distance: float
+    horizontal_speed: float
+
+
+def staging_violation(
+    *,
+    horizontal_distance: float,
+    horizontal_speed: float,
+    elapsed: float,
+    settle_seconds: float,
+) -> str | None:
+    if not all(
+        isfinite(value)
+        for value in (horizontal_distance, horizontal_speed)
+    ):
+        return "Horizontal position telemetry became invalid."
+    if horizontal_distance > MAXIMUM_STAGING_DISTANCE:
+        return (
+            f"Bumblebee drifted {horizontal_distance:.2f} m from takeoff; "
+            f"the pre-flip limit is {MAXIMUM_STAGING_DISTANCE:.2f} m."
+        )
+    if elapsed > settle_seconds + STAGING_TIMEOUT_SECONDS:
+        return (
+            "Bumblebee could not hold a sufficiently slow staging hover "
+            f"below {MAXIMUM_STAGING_SPEED:.2f} m/s."
+        )
+    return None
 
 
 class FlipFlight:
@@ -114,6 +152,8 @@ class FlipFlight:
             rotation=0.0,
             hover_thrust_ready=False,
             watchdog_active=False,
+            horizontal_distance=None,
+            horizontal_speed=None,
             message="Arming and starting the Acro safety heartbeat…",
         )
 
@@ -132,12 +172,21 @@ class FlipFlight:
                         commander.take_off(
                             velocity=context.safety_limits.max_vertical_speed
                         )
-                        self._stage_and_flip(
+                        staging = self._wait_for_stable_stage(
                             connection,
                             settings,
                             context,
                             watchdog,
                             live,
+                        )
+                        self._trigger(connection, settings.direction)
+                        self._monitor_flip(
+                            connection,
+                            settings,
+                            context,
+                            watchdog,
+                            live,
+                            staging,
                         )
                 finally:
                     try:
@@ -159,13 +208,117 @@ class FlipFlight:
                 "heartbeat ends."
             )
 
-    def _stage_and_flip(
+    def _wait_for_stable_stage(
         self,
         connection: Any,
         settings: FlipSettings,
         context: FlightContext,
         watchdog: EmergencyStopWatchdog,
         live: Live,
+    ) -> StagingSnapshot:
+        config = LogConfig(name="Bumblebee staging", period_in_ms=50)
+        config.add_variable("pm.vbat", "float")
+        config.add_variable("supervisor.info", "uint16_t")
+        config.add_variable("stateEstimate.x", "float")
+        config.add_variable("stateEstimate.y", "float")
+        config.add_variable("stateEstimate.z", "float")
+        config.add_variable("stateEstimate.vx", "float")
+        config.add_variable("stateEstimate.vy", "float")
+
+        started = time.monotonic()
+        stable_since: float | None = None
+        with TimedTelemetryLogger(
+            connection,
+            config,
+            context.safety_limits.telemetry_timeout,
+        ) as logger:
+            for _timestamp, data, _name in logger:
+                watchdog.assert_healthy()
+                now = time.monotonic()
+                elapsed = now - started
+                voltage = float(data["pm.vbat"])
+                altitude = float(data["stateEstimate.z"])
+                horizontal_distance = hypot(
+                    float(data["stateEstimate.x"]),
+                    float(data["stateEstimate.y"]),
+                )
+                horizontal_speed = hypot(
+                    float(data["stateEstimate.vx"]),
+                    float(data["stateEstimate.vy"]),
+                )
+
+                assert_supervisor_safe(int(data["supervisor.info"]))
+                if self._return_pressed():
+                    raise SafetyError(
+                        "Landing was requested before the flip trigger."
+                    )
+                if voltage < MINIMUM_FLIP_VOLTAGE:
+                    raise SafetyError(
+                        f"Battery fell below {MINIMUM_FLIP_VOLTAGE:.2f} V "
+                        "while staging."
+                    )
+
+                violation = staging_violation(
+                    horizontal_distance=horizontal_distance,
+                    horizontal_speed=horizontal_speed,
+                    elapsed=elapsed,
+                    settle_seconds=settings.settle_seconds,
+                )
+                if violation is not None:
+                    raise SafetyError(violation)
+
+                if horizontal_speed <= MAXIMUM_STAGING_SPEED:
+                    stable_since = stable_since or now
+                else:
+                    stable_since = None
+                stable_for = 0.0 if stable_since is None else now - stable_since
+                learned = elapsed >= settings.settle_seconds
+                ready = learned and stable_for >= STABLE_WINDOW_SECONDS
+
+                live.update(
+                    build_flip_dashboard(
+                        uri=context.uri,
+                        phase="Staging",
+                        direction=settings.direction,
+                        target_height=settings.height,
+                        altitude=altitude,
+                        voltage=voltage,
+                        rotation=0.0,
+                        hover_thrust_ready=learned,
+                        watchdog_active=True,
+                        horizontal_distance=horizontal_distance,
+                        horizontal_speed=horizontal_speed,
+                        message=(
+                            "Staging is stable. Sending the onboard flip trigger…"
+                            if ready
+                            else (
+                                "Holding at staging height. The flip requires "
+                                f"{STABLE_WINDOW_SECONDS:.0f} second below "
+                                f"{MAXIMUM_STAGING_SPEED:.2f} m/s. "
+                                "Press Return to cancel."
+                            )
+                        ),
+                    ),
+                    refresh=True,
+                )
+                if ready:
+                    return StagingSnapshot(
+                        altitude=altitude,
+                        voltage=voltage,
+                        horizontal_distance=horizontal_distance,
+                        horizontal_speed=horizontal_speed,
+                    )
+
+        raise SafetyError("Staging telemetry ended before the flip trigger.")
+
+    def _monitor_flip(
+        self,
+        connection: Any,
+        settings: FlipSettings,
+        context: FlightContext,
+        watchdog: EmergencyStopWatchdog,
+        live: Live,
+        staging: StagingSnapshot,
     ) -> None:
         config = LogConfig(name="Bumblebee flip", period_in_ms=50)
         config.add_variable("pm.vbat", "float")
@@ -176,8 +329,7 @@ class FlipFlight:
         config.add_variable("bumblebee.rotation", "float")
         config.add_variable("bumblebee.hoverThrust", "float")
 
-        started = time.monotonic()
-        triggered_at: float | None = None
+        triggered_at = time.monotonic()
         observed_maneuver = False
         final_result: int | None = None
 
@@ -198,44 +350,18 @@ class FlipFlight:
 
                 assert_supervisor_safe(int(data["supervisor.info"]))
 
-                if triggered_at is None:
-                    elapsed = now - started
-                    if self._return_pressed():
-                        raise SafetyError(
-                            "Landing was requested before the flip trigger."
-                        )
-                    if voltage < MINIMUM_FLIP_VOLTAGE:
-                        raise SafetyError(
-                            f"Battery fell below {MINIMUM_FLIP_VOLTAGE:.2f} V "
-                            "while staging."
-                        )
-
-                    ready = elapsed >= settings.settle_seconds and hover_thrust_ready
-                    message = (
-                        "Holding steady while the firmware learns this "
-                        "airframe's hover thrust. Press Return to cancel."
+                message = (
+                    "The onboard maneuver is running."
+                    if result == 0
+                    else FLIP_RESULT_MESSAGES.get(
+                        result,
+                        "The onboard maneuver is running.",
                     )
-                    if ready:
-                        self._trigger(connection, settings.direction)
-                        triggered_at = now
-                        message = (
-                            "Flip trigger sent. The maneuver now runs onboard; "
-                            "Bumblebee will recover and land automatically."
-                        )
-                else:
-                    ready = True
-                    message = (
-                        "The onboard maneuver is running."
-                        if result == 0
-                        else FLIP_RESULT_MESSAGES.get(
-                            result,
-                            "The onboard maneuver is running.",
-                        )
-                    )
-                    if state not in (0, 5, 6):
-                        observed_maneuver = True
-                    if state in (5, 6):
-                        final_result = result
+                )
+                if state not in (0, 5, 6):
+                    observed_maneuver = True
+                if state in (5, 6):
+                    final_result = result
 
                 live.update(
                     build_flip_dashboard(
@@ -248,6 +374,8 @@ class FlipFlight:
                         rotation=rotation,
                         hover_thrust_ready=hover_thrust_ready,
                         watchdog_active=True,
+                        horizontal_distance=staging.horizontal_distance,
+                        horizontal_speed=staging.horizontal_speed,
                         message=message,
                     ),
                     refresh=True,
@@ -262,16 +390,15 @@ class FlipFlight:
                     time.sleep(0.75)
                     return
 
-                if triggered_at is not None:
-                    since_trigger = now - triggered_at
-                    if not observed_maneuver and since_trigger > 2.0:
-                        raise SafetyError(
-                            "The onboard firmware did not accept the flip trigger."
-                        )
-                    if since_trigger > 4.0:
-                        raise SafetyError(
-                            "The onboard flip did not finish within four seconds."
-                        )
+                since_trigger = now - triggered_at
+                if not observed_maneuver and since_trigger > 2.0:
+                    raise SafetyError(
+                        "The onboard firmware did not accept the flip trigger."
+                    )
+                if since_trigger > 4.0:
+                    raise SafetyError(
+                        "The onboard flip did not finish within four seconds."
+                    )
 
     @staticmethod
     def _trigger(connection: Any, direction: str) -> None:

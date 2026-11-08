@@ -22,6 +22,8 @@ def build_flip_dashboard(
     rotation: float,
     hover_thrust_ready: bool,
     watchdog_active: bool,
+    horizontal_distance: float | None,
+    horizontal_speed: float | None,
     message: str,
 ) -> Panel:
     details = Table.grid(expand=True, padding=(0, 1))
@@ -38,6 +40,12 @@ def build_flip_dashboard(
     details.add_row(
         "Rotation measured",
         f"{rotation:.0f}° / 340° target",
+    )
+    details.add_row(
+        "Staging drift",
+        "Waiting…"
+        if horizontal_distance is None or horizontal_speed is None
+        else f"{horizontal_distance:.2f} m away · {horizontal_speed:.2f} m/s",
     )
     details.add_row(
         "Hover thrust",
