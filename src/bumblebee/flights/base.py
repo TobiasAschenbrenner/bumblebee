@@ -10,6 +10,7 @@ from rich.console import Console
 
 from bumblebee.models import FlightMode, FlightRequirements
 from bumblebee.safety import DEFAULT_FLIGHT_SAFETY_LIMITS, FlightSafetyLimits
+from bumblebee.supervisor import request_arming
 
 
 @dataclass(frozen=True)
@@ -42,7 +43,7 @@ def stop_and_disarm(connection: Any, context: FlightContext) -> None:
     operations = (
         ("motor stop", connection.cf.commander.send_stop_setpoint),
         ("setpoint release", connection.cf.commander.send_notify_setpoint_stop),
-        ("disarm", lambda: connection.cf.supervisor.send_arming_request(False)),
+        ("disarm", lambda: request_arming(connection, False)),
     )
     failed_operations: list[str] = []
     for name, operation in operations:

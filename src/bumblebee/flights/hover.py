@@ -20,6 +20,7 @@ from bumblebee.errors import SafetyError
 from bumblebee.flights.base import FlightContext, stop_and_disarm
 from bumblebee.models import FlightMode, FlightRequirements
 from bumblebee.safety import DEFAULT_FLIGHT_SAFETY_LIMITS, check_position_safety
+from bumblebee.supervisor import request_arming
 from bumblebee.telemetry import (
     TimedTelemetryLogger,
     assert_supervisor_safe,
@@ -97,7 +98,7 @@ class HoverFlight:
         commander = MotionCommander(connection, default_height=settings.height)
 
         try:
-            connection.cf.supervisor.send_arming_request(True)
+            request_arming(connection, True)
             time.sleep(0.5)
 
             with Live(

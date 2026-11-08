@@ -17,6 +17,7 @@ from bumblebee.errors import SafetyError
 from bumblebee.flights.base import FlightContext, stop_and_disarm
 from bumblebee.flights.hover import _bounded_float
 from bumblebee.models import FlightRequirements
+from bumblebee.supervisor import request_arming
 from bumblebee.telemetry import TimedTelemetryLogger, assert_supervisor_safe
 from bumblebee.ui.flip import build_flip_dashboard
 from bumblebee.watchdog import EmergencyStopWatchdog
@@ -116,7 +117,7 @@ class FlipFlight:
             message="Arming and starting the Acro safety heartbeat…",
         )
 
-        connection.cf.supervisor.send_arming_request(True)
+        request_arming(connection, True)
         time.sleep(0.5)
         watchdog_started = False
         try:

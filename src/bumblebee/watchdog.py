@@ -7,6 +7,7 @@ from types import TracebackType
 from typing import Any
 
 from bumblebee.errors import SafetyError
+from bumblebee.supervisor import send_emergency_stop_watchdog
 
 
 class EmergencyStopWatchdog:
@@ -47,7 +48,7 @@ class EmergencyStopWatchdog:
             ) from self._error
 
     def _send(self) -> None:
-        self._connection.cf.supervisor.send_emergency_stop_watchdog()
+        send_emergency_stop_watchdog(self._connection)
 
     def _run(self) -> None:
         while not self._stop.wait(self._interval):
