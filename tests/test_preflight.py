@@ -60,13 +60,30 @@ class PreflightTests(TestCase):
     def test_acro_flight_requires_bumblebee_firmware(self) -> None:
         issues = preflight_issues(
             snapshot(),
-            FlightRequirements(flow_deck=True, acro_firmware=True),
+            FlightRequirements(
+                flow_deck=True,
+                minimum_acro_firmware_version=2,
+            ),
         )
         self.assertTrue(any("acro firmware" in issue for issue in issues))
 
     def test_acro_firmware_version_satisfies_requirement(self) -> None:
         issues = preflight_issues(
-            snapshot(acro_firmware_version=1),
-            FlightRequirements(flow_deck=True, acro_firmware=True),
+            snapshot(acro_firmware_version=2),
+            FlightRequirements(
+                flow_deck=True,
+                minimum_acro_firmware_version=2,
+            ),
         )
         self.assertEqual([], issues)
+
+    def test_unsafe_acro_firmware_version_is_rejected(self) -> None:
+        issues = preflight_issues(
+            snapshot(acro_firmware_version=1),
+            FlightRequirements(
+                flow_deck=True,
+                minimum_acro_firmware_version=2,
+            ),
+        )
+
+        self.assertTrue(any("unsafe" in issue for issue in issues))

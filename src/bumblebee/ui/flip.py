@@ -20,6 +20,9 @@ def build_flip_dashboard(
     altitude: float | None,
     voltage: float | None,
     rotation: float,
+    peak_pitch_rate: float | None,
+    rotation_end_roll: float | None,
+    rotation_end_pitch: float | None,
     hover_thrust_ready: bool,
     watchdog_active: bool,
     horizontal_distance: float | None,
@@ -38,8 +41,20 @@ def build_flip_dashboard(
         else f"{altitude:.2f} m · {target_height:.2f} m staging target",
     )
     details.add_row(
-        "Rotation measured",
+        "Net rotation",
         f"{rotation:.0f}° / 340° target",
+    )
+    details.add_row(
+        "Peak pitch rate",
+        "Waiting…"
+        if peak_pitch_rate is None
+        else f"{peak_pitch_rate:.0f}°/s",
+    )
+    details.add_row(
+        "Rotation end attitude",
+        "Waiting…"
+        if rotation_end_roll is None or rotation_end_pitch is None
+        else f"roll {rotation_end_roll:.0f}° · pitch {rotation_end_pitch:.0f}°",
     )
     details.add_row(
         "Staging drift",

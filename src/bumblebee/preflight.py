@@ -45,10 +45,18 @@ def preflight_issues(
         issues.append("Flow deck V2 was not detected")
     if requirements.ai_deck and not snapshot.ai_deck_attached:
         issues.append("the AI-deck is required but was not detected")
-    if requirements.acro_firmware and snapshot.acro_firmware_version is None:
-        issues.append(
-            "the Bumblebee acro firmware is required but was not detected"
-        )
+    minimum_acro_version = requirements.minimum_acro_firmware_version
+    installed_acro_version = snapshot.acro_firmware_version
+    if minimum_acro_version is not None:
+        if installed_acro_version is None:
+            issues.append(
+                "the Bumblebee acro firmware is required but was not detected"
+            )
+        elif installed_acro_version < minimum_acro_version:
+            issues.append(
+                f"Acro firmware version {installed_acro_version} is unsafe for "
+                f"this routine; version {minimum_acro_version} or newer is required"
+            )
     if telemetry.power_state != 0:
         issues.append(
             f"power state is {power_state_name(telemetry.power_state)}; "

@@ -45,4 +45,4 @@ class PreflightSnapshot:
 class FlightRequirements:
     flow_deck: bool = False
     ai_deck: bool = False
-    acro_firmware: bool = False
+    minimum_acro_firmware_version: int | None = None

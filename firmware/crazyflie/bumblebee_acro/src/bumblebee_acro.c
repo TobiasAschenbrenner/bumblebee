@@ -25,7 +25,7 @@
 #define DEBUG_MODULE "BUMBLEBEE"
 #include "debug.h"
 
-#define APP_VERSION 1
+#define APP_VERSION 2
 #define FLIP_REQUEST_MAGIC 0xB33F
 #define LOOP_PERIOD_MS 5
 #define ACRO_PERMIT_MS 1450
@@ -39,10 +39,11 @@
 #define MAX_THRUST 60000.0f
 
 #define BOOST_DURATION_MS 160
-#define ROTATION_TIMEOUT_MS 600
+#define ROTATION_TIMEOUT_MS 850
 #define RECOVERY_DURATION_MS 220
 #define LEVEL_DURATION_MS 250
 #define TARGET_ROTATION_DEG 340.0f
+#define UPRIGHT_TOLERANCE_DEG 35.0f
 #define PITCH_RATE_DEG_S 900.0f
 #define BOOST_THRUST_FACTOR 1.40f
 #define ROTATION_THRUST_FACTOR 0.22f
@@ -69,7 +70,15 @@ typedef enum {
   flipResultRotationTimeout = 7,
   flipResultSupervisorStopped = 8,
   flipResultPermitDenied = 9,
+  flipResultNotUpright = 10,
 } FlipResult;
+
+typedef enum {
+  rotationCompleted = 0,
+  rotationTimedOut = 1,
+  rotationSupervisorStopped = 2,
+  rotationNotUpright = 3,
+} RotationResult;
 
 static const uint8_t firmwareVersion = APP_VERSION;
 static uint16_t flipRequest;
@@ -78,6 +87,10 @@ static int8_t direction = 1;
 static uint8_t flipState;
 static uint8_t flipResult;
 static float rotationDeg;
+static float rawRotationDeg;
+static float peakPitchRate;
+static float rotationEndRoll;
+static float rotationEndPitch;
 static float learnedHoverThrust;
 static uint8_t acroPermitActive;
 
@@ -191,33 +204,68 @@ static FlipResult validateStart(void) {
   return flipResultNone;
 }
 
-static bool rotate(const float hoverThrust) {
+static bool isUpright(void) {
+  return fabsf(logGetFloat(rollId)) <= UPRIGHT_TOLERANCE_DEG &&
+         fabsf(logGetFloat(pitchId)) <= UPRIGHT_TOLERANCE_DEG;
+}
+
+static void captureRotationEndAttitude(void) {
+  rotationEndRoll = logGetFloat(rollId);
+  rotationEndPitch = logGetFloat(pitchId);
+}
+
+static RotationResult rotate(const float hoverThrust) {
   TickType_t lastWakeTime = xTaskGetTickCount();
   const uint32_t iterations = ROTATION_TIMEOUT_MS / LOOP_PERIOD_MS;
-  const float rateCommand = (direction >= 0 ? 1.0f : -1.0f) *
-                            PITCH_RATE_DEG_S;
+  const float directionSign = direction >= 0 ? 1.0f : -1.0f;
+  const float rateCommand = directionSign * PITCH_RATE_DEG_S;
   const float rotationThrust = hoverThrust * ROTATION_THRUST_FACTOR;
   rotationDeg = 0.0f;
+  rawRotationDeg = 0.0f;
+  peakPitchRate = 0.0f;
+  rotationEndRoll = 0.0f;
+  rotationEndPitch = 0.0f;
 
   for (uint32_t i = 0; i < iterations; ++i) {
     if (!supervisorAllowsManeuver()) {
-      return false;
+      captureRotationEndAttitude();
+      return rotationSupervisorStopped;
     }
 
     sendRateSetpoint(rateCommand, rotationThrust);
-    rotationDeg += fabsf(logGetFloat(pitchRateId)) *
-                   ((float)LOOP_PERIOD_MS / 1000.0f);
-    if (rotationDeg >= TARGET_ROTATION_DEG) {
-      return true;
+    const float effectivePitchRate = -logGetFloat(pitchRateId);
+    const float directedPitchRate = directionSign * effectivePitchRate;
+    const float stepSeconds = (float)LOOP_PERIOD_MS / 1000.0f;
+    rotationDeg += directedPitchRate * stepSeconds;
+    rawRotationDeg += fabsf(effectivePitchRate) * stepSeconds;
+    peakPitchRate = fmaxf(peakPitchRate, directedPitchRate);
+
+    if (rotationDeg >= TARGET_ROTATION_DEG && isUpright()) {
+      captureRotationEndAttitude();
+      return rotationCompleted;
     }
     vTaskDelayUntil(&lastWakeTime, M2T(LOOP_PERIOD_MS));
   }
-  return false;
+
+  captureRotationEndAttitude();
+  return rotationDeg >= TARGET_ROTATION_DEG ?
+    rotationNotUpright : rotationTimedOut;
 }
 
 static void releaseControl(void) {
   commanderRelaxPriority();
   acroPermitActive = supervisorIsAcroPermitActive() ? 1 : 0;
+}
+
+static void failRotationSafely(const FlipResult result) {
+  flipResult = result;
+  flipState = flipStateAborted;
+
+  // Keep zero thrust at app priority until the temporary permit expires.
+  // This prevents the position controller from applying recovery thrust while
+  // the Crazyflie may still be upside down.
+  holdRateFor(ACRO_PERMIT_MS, 0.0f, 0.0f);
+  releaseControl();
 }
 
 static void performFlip(void) {
@@ -249,7 +297,17 @@ static void performFlip(void) {
   acroPermitActive = 1;
 
   flipState = flipStateRotate;
-  const bool completedRotation = rotate(hoverThrust);
+  const RotationResult rotationResult = rotate(hoverThrust);
+  if (rotationResult != rotationCompleted) {
+    if (rotationResult == rotationSupervisorStopped) {
+      failRotationSafely(flipResultSupervisorStopped);
+    } else if (rotationResult == rotationNotUpright) {
+      failRotationSafely(flipResultNotUpright);
+    } else {
+      failRotationSafely(flipResultRotationTimeout);
+    }
+    return;
+  }
 
   flipState = flipStateRecover;
   const bool recovered = holdRateFor(
@@ -264,9 +322,6 @@ static void performFlip(void) {
 
   if (!recovered || !leveled) {
     flipResult = flipResultSupervisorStopped;
-    flipState = flipStateAborted;
-  } else if (!completedRotation) {
-    flipResult = flipResultRotationTimeout;
     flipState = flipStateAborted;
   } else {
     flipResult = flipResultSuccess;
@@ -337,6 +392,10 @@ void appMain(void) {
       flipState = flipStateIdle;
       flipResult = flipResultNone;
       rotationDeg = 0.0f;
+      rawRotationDeg = 0.0f;
+      peakPitchRate = 0.0f;
+      rotationEndRoll = 0.0f;
+      rotationEndPitch = 0.0f;
       learnedHoverThrust = 0.0f;
     }
 
@@ -354,6 +413,10 @@ LOG_GROUP_START(bumblebee)
 LOG_ADD(LOG_UINT8, state, &flipState)
 LOG_ADD(LOG_UINT8, result, &flipResult)
 LOG_ADD(LOG_FLOAT, rotation, &rotationDeg)
+LOG_ADD(LOG_FLOAT, rawRotation, &rawRotationDeg)
+LOG_ADD(LOG_FLOAT, peakRate, &peakPitchRate)
+LOG_ADD(LOG_FLOAT, endRoll, &rotationEndRoll)
+LOG_ADD(LOG_FLOAT, endPitch, &rotationEndPitch)
 LOG_ADD(LOG_FLOAT, hoverThrust, &learnedHoverThrust)
 LOG_ADD(LOG_UINT8, acroPermit, &acroPermitActive)
 LOG_GROUP_STOP(bumblebee)

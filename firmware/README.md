@@ -46,6 +46,12 @@ the implementation is original and uses the stock rate controller. It must be
 tuned through padded tests for this specific AI-deck and Flow-deck airframe
 before it can be considered reliable.
 
+Acro app version 1 must not be used: its absolute gyro integration could count
+reversal as forward rotation and apply recovery thrust before the Crazyflie was
+upright. Version 2 measures signed net rotation, confirms the end attitude, and
+holds zero thrust if either check fails. The Mac flight routine rejects firmware
+older than version 2.
+
 ## Restore official firmware
 
 The community firmware can be replaced over Crazyradio without JTAG while the

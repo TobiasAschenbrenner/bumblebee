@@ -51,6 +51,7 @@ FLIP_RESULT_MESSAGES = {
     7: "The requested rotation did not complete before its timeout.",
     8: "The supervisor stopped the maneuver.",
     9: "The supervisor denied the time-limited Acro permit.",
+    10: "Net rotation was reached, but the Crazyflie was not upright.",
 }
 
 
@@ -99,7 +100,10 @@ class FlipFlight:
     title = "Experimental flip"
     description = "Take off, perform one onboard flip, recover, and land."
     requirements_label = "Flow V2 · Acro firmware"
-    requirements = FlightRequirements(flow_deck=True, acro_firmware=True)
+    requirements = FlightRequirements(
+        flow_deck=True,
+        minimum_acro_firmware_version=2,
+    )
     requires_acro = True
 
     def add_arguments(self, parser: ArgumentParser) -> None:
@@ -150,6 +154,9 @@ class FlipFlight:
             altitude=None,
             voltage=None,
             rotation=0.0,
+            peak_pitch_rate=None,
+            rotation_end_roll=None,
+            rotation_end_pitch=None,
             hover_thrust_ready=False,
             watchdog_active=False,
             horizontal_distance=None,
@@ -284,6 +291,9 @@ class FlipFlight:
                         altitude=altitude,
                         voltage=voltage,
                         rotation=0.0,
+                        peak_pitch_rate=None,
+                        rotation_end_roll=None,
+                        rotation_end_pitch=None,
                         hover_thrust_ready=learned,
                         watchdog_active=True,
                         horizontal_distance=horizontal_distance,
@@ -323,11 +333,12 @@ class FlipFlight:
         config = LogConfig(name="Bumblebee flip", period_in_ms=50)
         config.add_variable("pm.vbat", "float")
         config.add_variable("supervisor.info", "uint16_t")
-        config.add_variable("stateEstimate.z", "float")
         config.add_variable("bumblebee.state", "uint8_t")
         config.add_variable("bumblebee.result", "uint8_t")
         config.add_variable("bumblebee.rotation", "float")
-        config.add_variable("bumblebee.hoverThrust", "float")
+        config.add_variable("bumblebee.peakRate", "float")
+        config.add_variable("bumblebee.endRoll", "float")
+        config.add_variable("bumblebee.endPitch", "float")
 
         triggered_at = time.monotonic()
         observed_maneuver = False
@@ -342,11 +353,12 @@ class FlipFlight:
                 watchdog.assert_healthy()
                 now = time.monotonic()
                 voltage = float(data["pm.vbat"])
-                altitude = float(data["stateEstimate.z"])
                 state = int(data["bumblebee.state"])
                 result = int(data["bumblebee.result"])
                 rotation = float(data["bumblebee.rotation"])
-                hover_thrust_ready = float(data["bumblebee.hoverThrust"]) > 0.0
+                peak_pitch_rate = float(data["bumblebee.peakRate"])
+                rotation_end_roll = float(data["bumblebee.endRoll"])
+                rotation_end_pitch = float(data["bumblebee.endPitch"])
 
                 assert_supervisor_safe(int(data["supervisor.info"]))
 
@@ -369,10 +381,17 @@ class FlipFlight:
                         phase=FLIP_STATE_NAMES.get(state, "Unknown"),
                         direction=settings.direction,
                         target_height=settings.height,
-                        altitude=altitude,
+                        altitude=staging.altitude,
                         voltage=voltage,
                         rotation=rotation,
-                        hover_thrust_ready=hover_thrust_ready,
+                        peak_pitch_rate=peak_pitch_rate,
+                        rotation_end_roll=(
+                            rotation_end_roll if state in (5, 6) else None
+                        ),
+                        rotation_end_pitch=(
+                            rotation_end_pitch if state in (5, 6) else None
+                        ),
+                        hover_thrust_ready=True,
                         watchdog_active=True,
                         horizontal_distance=staging.horizontal_distance,
                         horizontal_speed=staging.horizontal_speed,
