@@ -383,7 +383,7 @@ class AIdeckUDPCameraClient:
                     f"The UDP camera receiver failed: {exc}"
                 ) from exc
 
-            if source[0] != self.host:
+            if source != (self.host, self.port):
                 continue
             frame = self._assembler.add_datagram(datagram)
             if frame is not None:

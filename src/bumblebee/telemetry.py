@@ -51,18 +51,9 @@ def read_telemetry(connection: Any) -> Telemetry:
 
     log_toc = connection.cf.log.toc
     has_supervisor = log_toc.get_element_by_complete_name("supervisor.info") is not None
-    has_legacy_can_fly = log_toc.get_element_by_complete_name("sys.canfly") is not None
-    has_legacy_tumbled = (
-        log_toc.get_element_by_complete_name("sys.isTumbled") is not None
-    )
 
     if has_supervisor:
         config.add_variable("supervisor.info", "uint16_t")
-    else:
-        if has_legacy_can_fly:
-            config.add_variable("sys.canfly", "uint8_t")
-        if has_legacy_tumbled:
-            config.add_variable("sys.isTumbled", "uint8_t")
 
     with SyncLogger(connection, config) as logger:
         for _ in range(TELEMETRY_WARMUP_SAMPLES):
@@ -75,10 +66,6 @@ def read_telemetry(connection: Any) -> Telemetry:
         power_state=int(latest["pm.state"]),
         supervisor_info=(
             int(latest["supervisor.info"]) if "supervisor.info" in latest else None
-        ),
-        legacy_can_fly=(bool(latest["sys.canfly"]) if "sys.canfly" in latest else None),
-        legacy_is_tumbled=(
-            bool(latest["sys.isTumbled"]) if "sys.isTumbled" in latest else None
         ),
         downward_range_mm=round(
             fmean(int(sample["range.zrange"]) for sample in samples)

@@ -177,6 +177,26 @@ class UDPFrameAssemblerTests(TestCase):
         connection.sendto.assert_called_once_with(b"FER", ("192.168.4.1", 5000))
         self.assertEqual(image, frame.data)
 
+    def test_udp_client_ignores_datagrams_from_wrong_port(self) -> None:
+        image = b"\xff\xd8camera-data\xff\xd9"
+        connection = Mock()
+        connection.recvfrom.side_effect = [
+            (self._header(len(image)), ("192.168.4.1", 4999)),
+            (_packet(image), ("192.168.4.1", 4999)),
+            (self._header(len(image)), ("192.168.4.1", 5000)),
+            (_packet(image), ("192.168.4.1", 5000)),
+        ]
+        with patch(
+            "bumblebee.camera.protocol.socket.socket",
+            return_value=connection,
+        ):
+            client = AIdeckUDPCameraClient(handshake_interval=60)
+            client.connect()
+            frame = client.read_frame()
+
+        self.assertEqual(4, connection.recvfrom.call_count)
+        self.assertEqual(image, frame.data)
+
 
 class CameraImageTests(TestCase):
     def test_decodes_raw_bayer_frame_for_preview(self) -> None:

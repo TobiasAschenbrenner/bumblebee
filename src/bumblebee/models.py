@@ -24,8 +24,6 @@ class Telemetry:
     voltage: float
     power_state: int
     supervisor_info: int | None
-    legacy_can_fly: bool | None
-    legacy_is_tumbled: bool | None
     downward_range_mm: int
 
 

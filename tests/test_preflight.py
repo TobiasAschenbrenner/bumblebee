@@ -23,8 +23,6 @@ def snapshot(
             voltage=voltage,
             power_state=power_state,
             supervisor_info=supervisor_info,
-            legacy_can_fly=None,
-            legacy_is_tumbled=None,
             downward_range_mm=42,
         ),
     )
