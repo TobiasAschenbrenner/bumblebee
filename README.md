@@ -23,7 +23,6 @@ and guarded flight routines.
 - Flow deck V2
 - AI-deck 1.1
 - Crazyradio PA
-- macOS computer
 
 The configured radio link is `radio://0/80/2M`.
 
@@ -58,8 +57,9 @@ the drone on a level, textured surface with plenty of clear space around it.
 ./hover      # open the hover routine directly
 ```
 
-For the camera, power on the Crazyflie, connect the Mac to the AI-deck's Wi-Fi
-network (usually `WiFi streaming example` with the original streamer), and run:
+For the camera, power on the Crazyflie and connect the Mac to the AI-deck's
+`Bumblebee` Wi-Fi network. The network has no internet access, so if macOS
+switches back to your usual Wi-Fi, select `Bumblebee` again. Then run:
 
 ```bash
 ./camera

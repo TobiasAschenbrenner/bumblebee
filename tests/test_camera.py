@@ -133,6 +133,32 @@ class UDPFrameAssemblerTests(TestCase):
 
         self.assertEqual(1, assembler.malformed_packets)
 
+    def test_payload_starting_with_magic_is_not_mistaken_for_header(self) -> None:
+        assembler = UDPFrameAssembler()
+        image = b"\xbc" + b"camera-data-longer-than-header"
+
+        assembler.add_datagram(self._header(len(image)), 1.0)
+        frame = assembler.add_datagram(_packet(image), 1.1)
+
+        assert frame is not None
+        self.assertEqual(image, frame.data)
+
+    def test_ignores_invalid_header_without_stopping_stream(self) -> None:
+        assembler = UDPFrameAssembler()
+        invalid_header = struct.pack(
+            "<BHHBBI",
+            0xBC,
+            324,
+            21300,
+            1,
+            int(CameraEncoding.JPEG),
+            100,
+        )
+
+        self.assertIsNone(assembler.add_datagram(_packet(invalid_header)))
+
+        self.assertEqual(1, assembler.malformed_packets)
+
     def test_udp_client_sends_handshake_and_receives_frame(self) -> None:
         image = b"\xff\xd8camera-data\xff\xd9"
         connection = Mock()

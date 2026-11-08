@@ -235,10 +235,11 @@ class UDPFrameAssembler:
         if payload is None:
             return None
 
-        if len(payload) >= _IMAGE_HEADER.size and payload[0] == _IMAGE_MAGIC:
+        new_frame = self._new_frame_if_header(payload, received_at)
+        if new_frame is not None:
             if self._pending is not None:
                 self.dropped_frames += 1
-            self._pending = self._new_frame(payload, received_at)
+            self._pending = new_frame
         elif self._pending is not None:
             self._pending.data.extend(payload)
 
@@ -272,6 +273,20 @@ class UDPFrameAssembler:
             self.malformed_packets += 1
             return None
         return datagram[_CPX_HEADER.size :]
+
+    def _new_frame_if_header(
+        self,
+        payload: bytes,
+        received_at: float,
+    ) -> _PendingUDPFrame | None:
+        if len(payload) != _IMAGE_HEADER.size or payload[0] != _IMAGE_MAGIC:
+            return None
+        try:
+            return self._new_frame(payload, received_at)
+        except CameraStreamError:
+            if self._pending is None:
+                self.malformed_packets += 1
+            return None
 
     def _new_frame(self, payload: bytes, received_at: float) -> _PendingUDPFrame:
         magic, width, height, depth, encoding_value, image_size = (
