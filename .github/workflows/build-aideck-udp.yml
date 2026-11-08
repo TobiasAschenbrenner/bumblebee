@@ -13,12 +13,12 @@ jobs:
 
     steps:
       - name: Check out Bumblebee build inputs
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: bumblebee
 
       - name: Check out ESP32 UDP firmware
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: larics/aideck-esp-firmware-udp
           ref: 2b7152366048bbfa98eea343f68264c52ba0bd0d
@@ -38,7 +38,7 @@ jobs:
           "source /new_home/.espressif/python_env/idf4.3_py3.10_env/bin/activate && ./tools/build/build"
 
       - name: Check out GAP8 UDP streamer
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: larics/aideck-gap8-examples
           ref: 124729b2a9f98809c5caed841a29701aab3221fb
@@ -52,7 +52,7 @@ jobs:
           tools/build/make-example examples/other/wifi-img-streamer build image
 
       - name: Check out Crazyflie access-point firmware
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: bitcraze/crazyflie-firmware
           ref: 16c5630707e92830dcd16455a57b5560e5838735
