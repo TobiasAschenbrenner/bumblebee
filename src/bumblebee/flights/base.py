@@ -9,6 +9,7 @@ from typing import Any, Protocol
 from rich.console import Console
 
 from bumblebee.models import FlightRequirements
+from bumblebee.safety import DEFAULT_FLIGHT_SAFETY_LIMITS, FlightSafetyLimits
 
 
 @dataclass(frozen=True)
@@ -16,6 +17,7 @@ class FlightContext:
     console: Console
     uri: str
     landing_voltage: float
+    safety_limits: FlightSafetyLimits = DEFAULT_FLIGHT_SAFETY_LIMITS
 
 
 class FlightRoutine(Protocol):

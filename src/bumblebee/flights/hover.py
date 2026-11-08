@@ -13,14 +13,18 @@ from statistics import fmean
 from typing import Any
 
 from cflib.crazyflie.log import LogConfig
-from cflib.crazyflie.syncLogger import SyncLogger
 from cflib.positioning.motion_commander import MotionCommander
 from rich.live import Live
 
 from bumblebee.errors import SafetyError
 from bumblebee.flights.base import FlightContext
 from bumblebee.models import FlightRequirements
-from bumblebee.telemetry import assert_supervisor_safe, power_state_name
+from bumblebee.safety import DEFAULT_FLIGHT_SAFETY_LIMITS, check_position_safety
+from bumblebee.telemetry import (
+    TimedTelemetryLogger,
+    assert_supervisor_safe,
+    power_state_name,
+)
 from bumblebee.ui.hover import build_hover_dashboard
 
 
@@ -68,9 +72,12 @@ class HoverFlight:
     def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument(
             "--height",
-            type=_bounded_float(0.20, 0.50),
+            type=_bounded_float(0.20, DEFAULT_FLIGHT_SAFETY_LIMITS.max_altitude),
             default=0.30,
-            help="hover height in metres, 0.20-0.50 (default: 0.30)",
+            help=(
+                "hover height in metres, 0.20-"
+                f"{DEFAULT_FLIGHT_SAFETY_LIMITS.max_altitude:.2f} (default: 0.30)"
+            ),
         )
         parser.add_argument(
             "--seconds",
@@ -100,6 +107,8 @@ class HoverFlight:
             duration=settings.duration,
             voltage=None,
             power_state="waiting",
+            horizontal_distance=None,
+            safety_limits=context.safety_limits,
             message="Arming and preparing the estimator…",
         )
         commander = MotionCommander(connection, default_height=settings.height)
@@ -123,15 +132,21 @@ class HoverFlight:
                         duration=settings.duration,
                         voltage=None,
                         power_state="battery",
+                        horizontal_distance=None,
+                        safety_limits=context.safety_limits,
                         message="Taking off under Flow deck control…",
                     ),
                     refresh=True,
                 )
-                commander.take_off()
+                commander.take_off(
+                    velocity=context.safety_limits.max_vertical_speed,
+                )
                 self._monitor_hover(connection, settings, context, live)
         finally:
             try:
-                commander.land()
+                commander.land(
+                    velocity=context.safety_limits.max_vertical_speed,
+                )
             except Exception as exc:  # noqa: BLE001 - cflib raises generic flight errors.
                 context.console.print(
                     f"[bold red]Controlled landing command failed:[/bold red] {exc}"
@@ -149,17 +164,29 @@ class HoverFlight:
         config.add_variable("pm.vbat", "float")
         config.add_variable("pm.state", "int8_t")
         config.add_variable("supervisor.info", "uint16_t")
+        config.add_variable("stateEstimate.x", "float")
+        config.add_variable("stateEstimate.y", "float")
         config.add_variable("stateEstimate.z", "float")
 
         started = time.monotonic()
         voltage_history: deque[float] = deque(maxlen=5)
-        with SyncLogger(connection, config) as logger:
+        with TimedTelemetryLogger(
+            connection,
+            config,
+            context.safety_limits.telemetry_timeout,
+        ) as logger:
             for _timestamp, data, _name in logger:
                 now = time.monotonic()
                 elapsed = now - started
                 voltage = float(data["pm.vbat"])
                 voltage_history.append(voltage)
                 altitude = float(data["stateEstimate.z"])
+                position_check = check_position_safety(
+                    x=float(data["stateEstimate.x"]),
+                    y=float(data["stateEstimate.y"]),
+                    altitude=altitude,
+                    limits=context.safety_limits,
+                )
                 power_code = int(data["pm.state"])
 
                 phase, message, should_land = self._landing_decision(
@@ -169,6 +196,7 @@ class HoverFlight:
                     elapsed=elapsed,
                     duration=settings.duration,
                     landing_voltage=context.landing_voltage,
+                    position_violation=position_check.violation,
                 )
 
                 live.update(
@@ -181,6 +209,8 @@ class HoverFlight:
                         duration=settings.duration,
                         voltage=fmean(voltage_history),
                         power_state=power_state_name(power_code),
+                        horizontal_distance=position_check.horizontal_distance,
+                        safety_limits=context.safety_limits,
                         message=message,
                     ),
                     refresh=True,
@@ -197,7 +227,14 @@ class HoverFlight:
         elapsed: float,
         duration: float,
         landing_voltage: float,
+        position_violation: str | None,
     ) -> tuple[str, str, bool]:
+        if position_violation is not None:
+            return (
+                "Landing · boundary reached",
+                f"{position_violation}. Starting a controlled landing.",
+                True,
+            )
         if voltage < landing_voltage:
             return (
                 "Landing · low battery",

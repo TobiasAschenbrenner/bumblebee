@@ -14,6 +14,7 @@ and guarded flight routines.
 - A flight selector for current and future routines
 - A guarded takeoff, hover, and landing routine
 - Automatic landing when a safety check fails
+- A shared 1.5 m altitude ceiling and 1.5 m flight radius
 
 ---
 
@@ -75,7 +76,9 @@ streamer or Bumblebee's optional UDP streamer; use `--transport tcp` or
 Run `./diagnose` first and continue only when Bumblebee reports
 **READY FOR FLIGHT**.
 
-The default hover rises to 0.30 m, holds for five seconds, and lands:
+The default hover rises to 0.30 m, holds for five seconds, and lands. Requested
+heights may not exceed 1.50 m, and live position telemetry triggers landing if
+the drone leaves its 1.50 m altitude or takeoff-radius boundary:
 
 ```bash
 ./hover --height 0.25 --seconds 3

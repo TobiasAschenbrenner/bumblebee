@@ -14,6 +14,7 @@ from rich.text import Text
 from bumblebee.battery import battery_gauge
 from bumblebee.flights.base import FlightRoutine
 from bumblebee.models import PreflightSnapshot
+from bumblebee.safety import DEFAULT_FLIGHT_SAFETY_LIMITS
 from bumblebee.ui.common import battery_status_style, build_battery_meter
 
 
@@ -59,6 +60,7 @@ def build_preflight_dashboard(
     uri: str,
     snapshot: PreflightSnapshot,
 ) -> Panel:
+    limits = DEFAULT_FLIGHT_SAFETY_LIMITS
     telemetry = snapshot.telemetry
     gauge = battery_gauge(telemetry.voltage)
     status_style = battery_status_style(gauge.status)
@@ -78,13 +80,24 @@ def build_preflight_dashboard(
         "Detected · idle" if snapshot.ai_deck_attached else "Not detected",
     )
     details.add_row("Supervisor", Text("Ready to fly", style="bold green"))
+    details.add_row(
+        "Safety boundary",
+        f"{limits.max_altitude:.2f} m altitude · {limits.max_distance:.2f} m radius",
+    )
+    details.add_row(
+        "Speed limits",
+        (
+            f"{limits.max_horizontal_speed:.2f} m/s horizontal · "
+            f"{limits.max_vertical_speed:.2f} m/s vertical"
+        ),
+    )
     details.add_row("Radio", uri)
 
     checklist = Text.from_markup(
         "[bold]Visual check[/bold]\n"
         "• Propellers are fitted correctly and unobstructed\n"
         "• Crazyflie is level on a matte, textured floor\n"
-        "• At least 2 × 2 m around and above it is clear\n"
+        "• At least 4 × 4 m of floor space and 2 m overhead are clear\n"
         "• No people, pets, loose cables, or fragile objects are nearby"
     )
     return Panel(

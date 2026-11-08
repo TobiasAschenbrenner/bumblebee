@@ -9,6 +9,7 @@ from rich.table import Table
 from rich.text import Text
 
 from bumblebee.battery import battery_gauge
+from bumblebee.safety import FlightSafetyLimits
 from bumblebee.ui.common import battery_status_style, build_battery_meter
 
 
@@ -22,6 +23,8 @@ def build_hover_dashboard(
     duration: float,
     voltage: float | None,
     power_state: str,
+    horizontal_distance: float | None,
+    safety_limits: FlightSafetyLimits,
     message: str,
 ) -> Panel:
     if voltage is None:
@@ -42,7 +45,19 @@ def build_hover_dashboard(
         "Altitude",
         "Waiting…"
         if altitude is None
-        else f"{altitude:.2f} m / {target_height:.2f} m target",
+        else (
+            f"{altitude:.2f} m / {target_height:.2f} m target "
+            f"· {safety_limits.max_altitude:.2f} m ceiling"
+        ),
+    )
+    details.add_row(
+        "Flight radius",
+        "Waiting…"
+        if horizontal_distance is None
+        else (
+            f"{horizontal_distance:.2f} m / "
+            f"{safety_limits.max_distance:.2f} m maximum"
+        ),
     )
     details.add_row(
         "Hover timer", f"{min(elapsed, duration):.1f} / {duration:.1f} seconds"
