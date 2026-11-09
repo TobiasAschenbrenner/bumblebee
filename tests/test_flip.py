@@ -5,10 +5,13 @@ from unittest.mock import Mock, call, patch
 from bumblebee.flights.flip import (
     FLIP_REQUEST_MAGIC,
     LOW_VOLTAGE_CONFIRM_SECONDS,
+    MINIMUM_RECOVERY_ALTITUDE,
+    MINIMUM_RECOVERY_VERTICAL_SPEED,
     MINIMUM_FLIP_VOLTAGE,
     MAXIMUM_STAGING_DISTANCE,
     FlipFlight,
     SustainedLowVoltageGuard,
+    recovery_violation,
     staging_violation,
 )
 from bumblebee.models import FlightMode
@@ -19,7 +22,7 @@ class FlipFlightTests(TestCase):
         flight = FlipFlight()
 
         self.assertTrue(flight.requires_acro)
-        self.assertEqual(4, flight.requirements.minimum_acro_firmware_version)
+        self.assertEqual(5, flight.requirements.minimum_acro_firmware_version)
         self.assertEqual(FlightMode.ACRO.value, "acro")
 
     def test_settings_are_isolated_from_hover_arguments(self) -> None:
@@ -77,6 +80,30 @@ class FlipFlightTests(TestCase):
         )
 
         self.assertIn("staging hover", violation or "")
+
+    def test_stable_recovery_is_accepted(self) -> None:
+        self.assertIsNone(
+            recovery_violation(
+                altitude=MINIMUM_RECOVERY_ALTITUDE + 0.10,
+                vertical_speed=0.0,
+            )
+        )
+
+    def test_low_recovery_altitude_is_rejected(self) -> None:
+        violation = recovery_violation(
+            altitude=MINIMUM_RECOVERY_ALTITUDE - 0.01,
+            vertical_speed=0.0,
+        )
+
+        self.assertIn("altitude", violation or "")
+
+    def test_fast_descent_after_recovery_is_rejected(self) -> None:
+        violation = recovery_violation(
+            altitude=MINIMUM_RECOVERY_ALTITUDE + 0.10,
+            vertical_speed=MINIMUM_RECOVERY_VERTICAL_SPEED - 0.01,
+        )
+
+        self.assertIn("vertical speed", violation or "")
 
     def test_single_low_voltage_sample_does_not_stop_staging(self) -> None:
         guard = SustainedLowVoltageGuard()

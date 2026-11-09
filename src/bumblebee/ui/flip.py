@@ -26,8 +26,6 @@ def build_flip_dashboard(
     peak_pitch_rate: float | None,
     rotation_end_roll: float | None,
     rotation_end_pitch: float | None,
-    start_altitude: float | None,
-    minimum_altitude: float | None,
     recovery_altitude: float | None,
     recovery_vertical_speed: float | None,
     hover_thrust_ready: bool,
@@ -68,29 +66,15 @@ def build_flip_dashboard(
         if rotation_end_roll is None or rotation_end_pitch is None
         else f"roll {rotation_end_roll:.0f}° · pitch {rotation_end_pitch:.0f}°",
     )
-    recovery_altitudes = (
-        start_altitude,
-        minimum_altitude,
-        recovery_altitude,
-    )
     details.add_row(
-        "Altitude recovery",
+        "Recovery state",
         (
             "Waiting…"
-            if any(value is None for value in recovery_altitudes)
+            if recovery_altitude is None or recovery_vertical_speed is None
             else (
-                f"{start_altitude:.2f} m start · "
-                f"{minimum_altitude:.2f} m lowest · "
-                f"{recovery_altitude:.2f} m recovered"
+                f"{recovery_altitude:.2f} m · "
+                f"{recovery_vertical_speed:+.2f} m/s vertical"
             )
-        ),
-    )
-    details.add_row(
-        "Recovery vertical speed",
-        (
-            "Waiting…"
-            if recovery_vertical_speed is None
-            else f"{recovery_vertical_speed:+.2f} m/s"
         ),
     )
     details.add_row(

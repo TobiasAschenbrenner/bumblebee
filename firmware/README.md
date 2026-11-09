@@ -52,8 +52,12 @@ upright. Version 2 measures signed net rotation, confirms the end attitude, and
 holds zero thrust if either check fails. Version 3 lowers the experimental
 under-load start threshold to 3.50 V for padded testing. Version 4 adds more
 vertical boost, hands control back sooner, records altitude recovery, and no
-longer reports success unless stable flight is recovered. The Mac flight routine
-rejects firmware older than version 4.
+longer reports success unless stable flight is recovered. Version 4 must not be
+used because it failed to start reliably on the test airframe. Version 5 keeps
+the revised recovery profile, removes the extra startup telemetry that was added
+in version 4, and validates the final altitude and vertical speed through the
+Mac's standard flight telemetry. The Mac flight routine rejects firmware older
+than version 5.
 
 ## Restore official firmware
 

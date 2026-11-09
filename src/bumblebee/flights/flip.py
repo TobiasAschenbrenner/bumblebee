@@ -33,6 +33,8 @@ MAXIMUM_STAGING_DISTANCE = 0.50
 MAXIMUM_STAGING_SPEED = 0.12
 STABLE_WINDOW_SECONDS = 1.0
 STAGING_TIMEOUT_SECONDS = 8.0
+MINIMUM_RECOVERY_ALTITUDE = 0.55
+MINIMUM_RECOVERY_VERTICAL_SPEED = -0.50
 
 FLIP_STATE_NAMES = {
     0: "Staging",
@@ -78,8 +80,6 @@ class StagingSnapshot:
 @dataclass(frozen=True)
 class RecoverySnapshot:
     raw_rotation: float
-    start_altitude: float
-    minimum_altitude: float
     recovery_altitude: float
     recovery_vertical_speed: float
     hover_thrust: float
@@ -126,6 +126,26 @@ def staging_violation(
     return None
 
 
+def recovery_violation(
+    *,
+    altitude: float,
+    vertical_speed: float,
+) -> str | None:
+    if not all(isfinite(value) for value in (altitude, vertical_speed)):
+        return "Recovery telemetry became invalid."
+    if altitude < MINIMUM_RECOVERY_ALTITUDE:
+        return (
+            f"Recovery altitude was {altitude:.2f} m; at least "
+            f"{MINIMUM_RECOVERY_ALTITUDE:.2f} m is required."
+        )
+    if vertical_speed < MINIMUM_RECOVERY_VERTICAL_SPEED:
+        return (
+            f"Recovery vertical speed was {vertical_speed:.2f} m/s; it must be "
+            f"at least {MINIMUM_RECOVERY_VERTICAL_SPEED:.2f} m/s."
+        )
+    return None
+
+
 class FlipFlight:
     key = "flip"
     title = "Experimental flip"
@@ -133,7 +153,7 @@ class FlipFlight:
     requirements_label = "Flow V2 · Acro firmware"
     requirements = FlightRequirements(
         flow_deck=True,
-        minimum_acro_firmware_version=4,
+        minimum_acro_firmware_version=5,
     )
     requires_acro = True
 
@@ -191,8 +211,6 @@ class FlipFlight:
             peak_pitch_rate=None,
             rotation_end_roll=None,
             rotation_end_pitch=None,
-            start_altitude=None,
-            minimum_altitude=None,
             recovery_altitude=None,
             recovery_vertical_speed=None,
             hover_thrust_ready=False,
@@ -367,8 +385,6 @@ class FlipFlight:
                         peak_pitch_rate=None,
                         rotation_end_roll=None,
                         rotation_end_pitch=None,
-                        start_altitude=None,
-                        minimum_altitude=None,
                         recovery_altitude=None,
                         recovery_vertical_speed=None,
                         hover_thrust_ready=learned,
@@ -483,8 +499,6 @@ class FlipFlight:
                         rotation_end_pitch=(
                             rotation_end_pitch if state in (5, 6) else None
                         ),
-                        start_altitude=None,
-                        minimum_altitude=None,
                         recovery_altitude=None,
                         recovery_vertical_speed=None,
                         hover_thrust_ready=True,
@@ -516,10 +530,19 @@ class FlipFlight:
             raise SafetyError("Flip telemetry ended before a final result arrived.")
 
         recovery = self._read_recovery_snapshot(connection, context)
+        host_recovery_issue = recovery_violation(
+            altitude=recovery.recovery_altitude,
+            vertical_speed=recovery.recovery_vertical_speed,
+        )
+        if final_result == 1 and host_recovery_issue is not None:
+            final_result = 11
+            state = 6
         detail = FLIP_RESULT_MESSAGES.get(
             final_result,
             f"Unknown result code {final_result}.",
         )
+        if host_recovery_issue is not None:
+            detail = f"{detail} {host_recovery_issue}"
         live.update(
             build_flip_dashboard(
                 uri=context.uri,
@@ -535,8 +558,6 @@ class FlipFlight:
                 peak_pitch_rate=peak_pitch_rate,
                 rotation_end_roll=rotation_end_roll,
                 rotation_end_pitch=rotation_end_pitch,
-                start_altitude=recovery.start_altitude,
-                minimum_altitude=recovery.minimum_altitude,
                 recovery_altitude=recovery.recovery_altitude,
                 recovery_vertical_speed=recovery.recovery_vertical_speed,
                 hover_thrust_ready=True,
@@ -560,11 +581,9 @@ class FlipFlight:
     ) -> RecoverySnapshot:
         config = LogConfig(name="Bumblebee recovery result", period_in_ms=50)
         config.add_variable("bumblebee.rawRotation", "float")
-        config.add_variable("bumblebee.startAltitude", "float")
-        config.add_variable("bumblebee.minAltitude", "float")
-        config.add_variable("bumblebee.recoveryAltitude", "float")
-        config.add_variable("bumblebee.recoveryVz", "float")
         config.add_variable("bumblebee.hoverThrust", "float")
+        config.add_variable("stateEstimate.z", "float")
+        config.add_variable("stateEstimate.vz", "float")
 
         with TimedTelemetryLogger(
             connection,
@@ -575,10 +594,8 @@ class FlipFlight:
 
         return RecoverySnapshot(
             raw_rotation=float(data["bumblebee.rawRotation"]),
-            start_altitude=float(data["bumblebee.startAltitude"]),
-            minimum_altitude=float(data["bumblebee.minAltitude"]),
-            recovery_altitude=float(data["bumblebee.recoveryAltitude"]),
-            recovery_vertical_speed=float(data["bumblebee.recoveryVz"]),
+            recovery_altitude=float(data["stateEstimate.z"]),
+            recovery_vertical_speed=float(data["stateEstimate.vz"]),
             hover_thrust=float(data["bumblebee.hoverThrust"]),
         )
 
