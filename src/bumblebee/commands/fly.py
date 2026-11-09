@@ -117,7 +117,7 @@ def main(
                 )
                 return 0
 
-        confirmation_word = "FLIP" if flight.requires_acro else "FLY"
+        confirmation_word = flight.confirmation_word
         confirmation = Prompt.ask(
             f"Type [bold]{confirmation_word}[/bold] exactly to arm, "
             "or press Return to cancel",

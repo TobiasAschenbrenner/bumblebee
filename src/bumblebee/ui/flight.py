@@ -20,11 +20,11 @@ from bumblebee.ui.common import battery_status_style, build_battery_meter
 
 def build_flights_table(flights: Iterable[FlightRoutine]) -> Table:
     table = Table(box=box.SIMPLE, expand=True, show_header=True)
-    table.add_column("Choice", width=8, style="bold cyan")
-    table.add_column("Flight", style="bold")
-    table.add_column("Mode", width=8)
-    table.add_column("What it does", ratio=1)
-    table.add_column("Needs", width=18)
+    table.add_column("Choice", width=6, style="bold cyan")
+    table.add_column("Flight", width=20, style="bold")
+    table.add_column("Mode", width=6)
+    table.add_column("What it does", min_width=20, ratio=1)
+    table.add_column("Needs", width=14)
     for number, flight in enumerate(flights, start=1):
         table.add_row(
             str(number),

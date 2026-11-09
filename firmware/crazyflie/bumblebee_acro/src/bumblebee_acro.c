@@ -25,8 +25,10 @@
 #define DEBUG_MODULE "BUMBLEBEE"
 #include "debug.h"
 
-#define APP_VERSION 5
+#define APP_VERSION 6
 #define FLIP_REQUEST_MAGIC 0xB33F
+#define LIFT_TEST_REQUEST_MAGIC 0xB11F
+#define FLIP_PROFILE_ENABLED false
 #define LOOP_PERIOD_MS 5
 #define ACRO_PERMIT_MS 1450
 
@@ -38,6 +40,11 @@
 #define MAX_HOVER_THRUST 55000.0f
 #define MAX_THRUST 60000.0f
 
+#define LIFT_TEST_DURATION_MS 200
+#define LIFT_TEST_OBSERVATION_MS 600
+#define LIFT_TEST_MIN_ALTITUDE_M 0.45f
+#define LIFT_TEST_MAX_ALTITUDE_M 0.75f
+#define LIFT_TEST_CEILING_M 1.10f
 #define BOOST_DURATION_MS 280
 #define ROTATION_TIMEOUT_MS 850
 #define LEVEL_RECOVERY_TIMEOUT_MS 300
@@ -72,6 +79,7 @@ typedef enum {
   flipResultPermitDenied = 9,
   flipResultNotUpright = 10,
   flipResultRecoveryFailed = 11,
+  flipResultProfileDisabled = 12,
 } FlipResult;
 
 typedef enum {
@@ -178,7 +186,10 @@ static bool holdLevelFor(const uint32_t durationMs, const float thrust) {
   return false;
 }
 
-static FlipResult validateStart(void) {
+static FlipResult validateStart(
+  const float minimumAltitude,
+  const float maximumAltitude
+) {
   if (!supervisorAllowsManeuver()) {
     return flipResultNotFlying;
   }
@@ -196,8 +207,7 @@ static FlipResult validateStart(void) {
   }
 
   const float altitude = logGetFloat(altitudeId);
-  if (altitude < MIN_START_ALTITUDE_M ||
-      altitude > MAX_START_ALTITUDE_M) {
+  if (altitude < minimumAltitude || altitude > maximumAltitude) {
     return flipResultAltitude;
   }
 
@@ -288,7 +298,7 @@ static void failRotationSafely(const FlipResult result) {
 }
 
 static void performFlip(void) {
-  flipResult = validateStart();
+  flipResult = validateStart(MIN_START_ALTITUDE_M, MAX_START_ALTITUDE_M);
   if (flipResult != flipResultNone) {
     flipState = flipStateAborted;
     return;
@@ -349,6 +359,66 @@ static void performFlip(void) {
   }
 }
 
+static FlipResult runLiftTestPulse(void) {
+  TickType_t lastWakeTime = xTaskGetTickCount();
+  const uint32_t iterations = LIFT_TEST_DURATION_MS / LOOP_PERIOD_MS;
+
+  for (uint32_t i = 0; i < iterations; ++i) {
+    if (!supervisorAllowsManeuver()) {
+      return flipResultSupervisorStopped;
+    }
+    if (logGetFloat(altitudeId) >= LIFT_TEST_CEILING_M) {
+      return flipResultAltitude;
+    }
+    sendRateSetpoint(0.0f, MAX_THRUST);
+    vTaskDelayUntil(&lastWakeTime, M2T(LOOP_PERIOD_MS));
+  }
+
+  return flipResultNone;
+}
+
+static bool observeLiftTest(void) {
+  TickType_t lastWakeTime = xTaskGetTickCount();
+  const uint32_t iterations = LIFT_TEST_OBSERVATION_MS / LOOP_PERIOD_MS;
+
+  for (uint32_t i = 0; i < iterations; ++i) {
+    if (!supervisorAllowsManeuver()) {
+      return false;
+    }
+    vTaskDelayUntil(&lastWakeTime, M2T(LOOP_PERIOD_MS));
+  }
+
+  return true;
+}
+
+static void performLiftTest(void) {
+  flipResult = validateStart(
+    LIFT_TEST_MIN_ALTITUDE_M,
+    LIFT_TEST_MAX_ALTITUDE_M
+  );
+  if (flipResult != flipResultNone) {
+    flipState = flipStateAborted;
+    return;
+  }
+
+  flipState = flipStateBoost;
+  flipResult = runLiftTestPulse();
+  releaseControl();
+  if (flipResult != flipResultNone) {
+    flipState = flipStateAborted;
+    return;
+  }
+
+  flipState = flipStateLevel;
+  if (observeLiftTest()) {
+    flipResult = flipResultSuccess;
+    flipState = flipStateComplete;
+  } else {
+    flipResult = flipResultSupervisorStopped;
+    flipState = flipStateAborted;
+  }
+}
+
 static bool findLogVariables(void) {
   altitudeId = logGetVarId("stateEstimate", "z");
   batteryId = logGetVarId("pm", "vbat");
@@ -399,10 +469,18 @@ void appMain(void) {
     updateHoverThrustEstimate();
     acroPermitActive = supervisorIsAcroPermitActive() ? 1 : 0;
 
-    if (flipRequest == FLIP_REQUEST_MAGIC && flipState == flipStateIdle) {
+    if (flipRequest != 0 && flipState == flipStateIdle) {
+      const uint16_t request = flipRequest;
       flipRequest = 0;
       flipResult = flipResultNone;
-      performFlip();
+      if (request == LIFT_TEST_REQUEST_MAGIC) {
+        performLiftTest();
+      } else if (request == FLIP_REQUEST_MAGIC && FLIP_PROFILE_ENABLED) {
+        performFlip();
+      } else if (request == FLIP_REQUEST_MAGIC) {
+        flipResult = flipResultProfileDisabled;
+        flipState = flipStateAborted;
+      }
     } else if (flipRequest != 0) {
       flipRequest = 0;
     }

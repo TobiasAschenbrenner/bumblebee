@@ -16,9 +16,10 @@ checksummed `bumblebee-firmware` artifact:
   conflicting deck configuration.
 - `cf2-2025.02-aideck-ap.bin` is the final Crazyflie image and starts the open
   `Bumblebee` access point.
-- `cf2-2025.02-bumblebee-acro-aideck-ap.bin` adds Bumblebee's onboard flip app
-  and a time-limited supervisor permit. It starts the same open `Bumblebee`
-  access point and is required only for Acro routines.
+- `cf2-2025.02-bumblebee-acro-aideck-ap.bin` adds Bumblebee's onboard flight
+  experiment app and a time-limited supervisor permit. It starts the same open
+  `Bumblebee` access point and is required for lift measurements and Acro
+  routines.
 - `aideck_esp_udp.bin` forwards camera packets only after a viewer registers
   itself with the `FER` UDP handshake. This Bumblebee patch prevents an absent
   viewer from flooding the Crazyflie link with failed sends.
@@ -29,16 +30,18 @@ No private Wi-Fi credentials are included.
 
 ## Acro firmware safety model
 
-The flip app is idle until it receives Bumblebee's one-shot magic request. It
-checks that the Crazyflie is flying, level, between 0.75 and 1.25 m, above 3.50
-V, and has learned a plausible hover-thrust value. The boost, rotation,
-recovery, and levelling phases then run onboard at 200 Hz.
+The experiment app is idle until it receives a one-shot Bumblebee request. The
+v6 lift test checks that the Crazyflie is flying, level, between 0.45 and 0.75
+m, above 3.50 V, and has learned a plausible hover-thrust value. It applies a
+200 ms level lift pulse at 200 Hz, stops the pulse at 1.10 m, releases control
+back to the normal position controller, and observes recovery onboard.
 
-The firmware does not permanently disable tumble protection. It adds a permit
-that is available only while flying, is capped at 1.5 seconds, and expires
-without any Mac-side cleanup. Emergency stop, the emergency watchdog, the
-commander watchdog, arming, crash, and deck checks stay active. The normal
-`cf2-2025.02-aideck-ap.bin` remains available as the non-Acro fallback.
+The v6 lift test never requests the Acro permit, so tumble protection remains
+active throughout. Flip profiles use a permit that is available only while
+flying, is capped at 1.5 seconds, and expires without any Mac-side cleanup.
+Emergency stop, the emergency watchdog, the commander watchdog, arming, crash,
+and deck checks stay active. The normal `cf2-2025.02-aideck-ap.bin` remains
+available as the non-Acro fallback.
 
 The first profile is intentionally marked experimental. Its phase structure is
 informed by [Crazyflie backflip research](https://arxiv.org/abs/2209.14652), but
@@ -56,8 +59,13 @@ longer reports success unless stable flight is recovered. Version 4 must not be
 used because it failed to start reliably on the test airframe. Version 5 keeps
 the revised recovery profile, removes the extra startup telemetry that was added
 in version 4, and validates the final altitude and vertical speed through the
-Mac's standard flight telemetry. The Mac flight routine rejects firmware older
-than version 5.
+Mac's standard flight telemetry. Version 5 completed a full rotation on the
+AI-deck and Flow-deck test airframe, but reached recovery at 0.33 m while still
+descending at 3.14 m/s and crashed into the padded surface. Version 6 disables
+the flip trigger both onboard and on the Mac. It adds the upright lift/recovery
+measurement used to determine whether the airframe has enough thrust reserve
+for a redesigned profile. The lift test requires v6 or newer; the flip routine
+requires a future v7 or newer profile.
 
 ## Restore official firmware
 

@@ -16,7 +16,8 @@ and guarded flight routines.
 - Automatic landing when a safety check fails
 - A shared 1.5 m altitude ceiling and 1.5 m flight radius
 - Separate Safe and explicitly unlocked Acro flight modes
-- An experimental, onboard-controlled flip routine
+- An upright lift/recovery measurement for Acro development
+- An experimental onboard flip routine with unsafe profiles version-gated
 
 ---
 
@@ -91,13 +92,27 @@ During flight:
 - Press **Return** to land early.
 - Press **Control-C** to request landing and disarm cleanup.
 
+### Lift and recovery measurement
+
+Firmware v6 temporarily disables the flip and adds an upright measurement
+routine instead. It stages at 0.60 m, applies one 200 ms level lift pulse, then
+records the altitude gain, vertical speed, tilt, and battery sag while the
+normal position controller recovers:
+
+```bash
+./fly --flight lift-test
+```
+
+The test stays in Safe mode, keeps the shared 1.5 m boundary, has an additional
+1.10 m onboard pulse cutoff, and asks for an exact `LIFT` confirmation. It still
+uses the radio-loss watchdog, so power-cycle the Crazyflie afterwards.
+
 ### Experimental flip
 
 The flip is deliberately separate from the normal Safe routines. It requires
 Bumblebee's custom Crazyflie firmware, a freshly charged battery, eye
 protection, and a padded test area with at least 4 × 4 m of clear floor and 3 m
-overhead. The initial profile is experimental and has not yet been tuned for
-the extra weight of the AI-deck and Flow deck.
+overhead.
 
 ```bash
 ./fly --flight flip
@@ -113,9 +128,13 @@ remain active. A radio-loss watchdog cuts motor power if its Mac heartbeat
 disappears. Power-cycle the Crazyflie after every Acro run to reset that
 watchdog.
 
-For the current experimental profile, Safe flights land at 3.50 V and the flip
-also requires at least 3.50 V under motor load. This lower Acro reserve is for
-padded testing only.
+Version 5 completed a full rotation on the AI-deck and Flow-deck airframe but
+lost too much height to recover safely. Firmware v6 therefore rejects the flip
+trigger onboard, and the Mac requires a future v7 or newer profile before it
+will arm the maneuver. Do not restore v5 for another attempt.
+
+Safe flights and the lift test land at 3.50 V. Any future flip profile must also
+pass an under-load battery check before its rotation can begin.
 
 Do not run the flip indoors near people, pets, walls, windows, or furniture.
 

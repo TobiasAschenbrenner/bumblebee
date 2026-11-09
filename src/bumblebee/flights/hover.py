@@ -52,6 +52,7 @@ class HoverFlight:
     requirements_label = "Flow deck V2"
     requirements = FlightRequirements(flow_deck=True)
     requires_acro = False
+    confirmation_word = "FLY"
 
     def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument(

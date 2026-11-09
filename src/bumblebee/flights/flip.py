@@ -153,9 +153,10 @@ class FlipFlight:
     requirements_label = "Flow V2 · Acro firmware"
     requirements = FlightRequirements(
         flow_deck=True,
-        minimum_acro_firmware_version=5,
+        minimum_acro_firmware_version=7,
     )
     requires_acro = True
+    confirmation_word = "FLIP"
 
     def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument(

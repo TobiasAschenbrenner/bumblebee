@@ -30,6 +30,7 @@ class FlightRoutine(Protocol):
     requirements_label: str
     requirements: FlightRequirements
     requires_acro: bool
+    confirmation_word: str
 
     def add_arguments(self, parser: ArgumentParser) -> None: ...
 
