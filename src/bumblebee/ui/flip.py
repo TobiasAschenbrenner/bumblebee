@@ -22,10 +22,16 @@ def build_flip_dashboard(
     battery_live: bool,
     minimum_flip_voltage: float,
     rotation: float,
+    raw_rotation: float | None,
     peak_pitch_rate: float | None,
     rotation_end_roll: float | None,
     rotation_end_pitch: float | None,
+    start_altitude: float | None,
+    minimum_altitude: float | None,
+    recovery_altitude: float | None,
+    recovery_vertical_speed: float | None,
     hover_thrust_ready: bool,
+    hover_thrust: float | None,
     watchdog_active: bool,
     horizontal_distance: float | None,
     horizontal_speed: float | None,
@@ -47,6 +53,10 @@ def build_flip_dashboard(
         f"{rotation:.0f}° / 340° target",
     )
     details.add_row(
+        "Raw angular travel",
+        "Waiting…" if raw_rotation is None else f"{raw_rotation:.0f}°",
+    )
+    details.add_row(
         "Peak pitch rate",
         "Waiting…"
         if peak_pitch_rate is None
@@ -58,6 +68,31 @@ def build_flip_dashboard(
         if rotation_end_roll is None or rotation_end_pitch is None
         else f"roll {rotation_end_roll:.0f}° · pitch {rotation_end_pitch:.0f}°",
     )
+    recovery_altitudes = (
+        start_altitude,
+        minimum_altitude,
+        recovery_altitude,
+    )
+    details.add_row(
+        "Altitude recovery",
+        (
+            "Waiting…"
+            if any(value is None for value in recovery_altitudes)
+            else (
+                f"{start_altitude:.2f} m start · "
+                f"{minimum_altitude:.2f} m lowest · "
+                f"{recovery_altitude:.2f} m recovered"
+            )
+        ),
+    )
+    details.add_row(
+        "Recovery vertical speed",
+        (
+            "Waiting…"
+            if recovery_vertical_speed is None
+            else f"{recovery_vertical_speed:+.2f} m/s"
+        ),
+    )
     details.add_row(
         "Staging drift",
         "Waiting…"
@@ -67,7 +102,15 @@ def build_flip_dashboard(
     details.add_row(
         "Hover thrust",
         Text(
-            "Learned" if hover_thrust_ready else "Learning…",
+            (
+                "Learning…"
+                if not hover_thrust_ready
+                else (
+                    "Learned"
+                    if hover_thrust is None
+                    else f"Learned · {hover_thrust:.0f}"
+                )
+            ),
             style="green" if hover_thrust_ready else "cyan",
         ),
     )

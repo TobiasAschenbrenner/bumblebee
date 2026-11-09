@@ -65,27 +65,27 @@ class PreflightTests(TestCase):
             snapshot(),
             FlightRequirements(
                 flow_deck=True,
-                minimum_acro_firmware_version=3,
+                minimum_acro_firmware_version=4,
             ),
         )
         self.assertTrue(any("acro firmware" in issue for issue in issues))
 
     def test_acro_firmware_version_satisfies_requirement(self) -> None:
         issues = preflight_issues(
-            snapshot(acro_firmware_version=3),
+            snapshot(acro_firmware_version=4),
             FlightRequirements(
                 flow_deck=True,
-                minimum_acro_firmware_version=3,
+                minimum_acro_firmware_version=4,
             ),
         )
         self.assertEqual([], issues)
 
     def test_unsafe_acro_firmware_version_is_rejected(self) -> None:
         issues = preflight_issues(
-            snapshot(acro_firmware_version=2),
+            snapshot(acro_firmware_version=3),
             FlightRequirements(
                 flow_deck=True,
-                minimum_acro_firmware_version=3,
+                minimum_acro_firmware_version=4,
             ),
         )
 

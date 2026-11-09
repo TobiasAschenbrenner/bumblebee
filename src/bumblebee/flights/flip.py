@@ -39,14 +39,14 @@ FLIP_STATE_NAMES = {
     1: "Boosting",
     2: "Rotating",
     3: "Recovering",
-    4: "Levelling",
+    4: "Verifying recovery",
     5: "Complete",
     6: "Aborted",
 }
 
 FLIP_RESULT_MESSAGES = {
     0: "No result was reported.",
-    1: "The onboard flip sequence completed.",
+    1: "The rotation completed and stable-flight recovery was verified.",
     2: "The firmware did not consider the Crazyflie airborne.",
     3: "The under-load battery voltage was too low to safely begin the flip.",
     4: "The Crazyflie was not level enough to begin.",
@@ -56,6 +56,7 @@ FLIP_RESULT_MESSAGES = {
     8: "The supervisor stopped the maneuver.",
     9: "The supervisor denied the time-limited Acro permit.",
     10: "Net rotation was reached, but the Crazyflie was not upright.",
+    11: "The rotation completed, but stable flight was not recovered.",
 }
 
 
@@ -72,6 +73,16 @@ class StagingSnapshot:
     voltage: float
     horizontal_distance: float
     horizontal_speed: float
+
+
+@dataclass(frozen=True)
+class RecoverySnapshot:
+    raw_rotation: float
+    start_altitude: float
+    minimum_altitude: float
+    recovery_altitude: float
+    recovery_vertical_speed: float
+    hover_thrust: float
 
 
 @dataclass
@@ -122,7 +133,7 @@ class FlipFlight:
     requirements_label = "Flow V2 · Acro firmware"
     requirements = FlightRequirements(
         flow_deck=True,
-        minimum_acro_firmware_version=3,
+        minimum_acro_firmware_version=4,
     )
     requires_acro = True
 
@@ -176,10 +187,16 @@ class FlipFlight:
             battery_live=False,
             minimum_flip_voltage=MINIMUM_FLIP_VOLTAGE,
             rotation=0.0,
+            raw_rotation=None,
             peak_pitch_rate=None,
             rotation_end_roll=None,
             rotation_end_pitch=None,
+            start_altitude=None,
+            minimum_altitude=None,
+            recovery_altitude=None,
+            recovery_vertical_speed=None,
             hover_thrust_ready=False,
+            hover_thrust=None,
             watchdog_active=True,
             horizontal_distance=None,
             horizontal_speed=None,
@@ -346,10 +363,16 @@ class FlipFlight:
                         battery_live=True,
                         minimum_flip_voltage=MINIMUM_FLIP_VOLTAGE,
                         rotation=0.0,
+                        raw_rotation=None,
                         peak_pitch_rate=None,
                         rotation_end_roll=None,
                         rotation_end_pitch=None,
+                        start_altitude=None,
+                        minimum_altitude=None,
+                        recovery_altitude=None,
+                        recovery_vertical_speed=None,
                         hover_thrust_ready=learned,
+                        hover_thrust=None,
                         watchdog_active=True,
                         horizontal_distance=horizontal_distance,
                         horizontal_speed=horizontal_speed,
@@ -405,6 +428,12 @@ class FlipFlight:
         triggered_at = time.monotonic()
         observed_maneuver = False
         final_result: int | None = None
+        voltage = staging.voltage
+        state = 0
+        rotation = 0.0
+        peak_pitch_rate = 0.0
+        rotation_end_roll = 0.0
+        rotation_end_pitch = 0.0
 
         with TimedTelemetryLogger(
             connection,
@@ -421,8 +450,6 @@ class FlipFlight:
                 peak_pitch_rate = float(data["bumblebee.peakRate"])
                 rotation_end_roll = float(data["bumblebee.endRoll"])
                 rotation_end_pitch = float(data["bumblebee.endPitch"])
-
-                assert_supervisor_safe(int(data["supervisor.info"]))
 
                 message = (
                     "The onboard maneuver is running."
@@ -448,6 +475,7 @@ class FlipFlight:
                         battery_live=True,
                         minimum_flip_voltage=MINIMUM_FLIP_VOLTAGE,
                         rotation=rotation,
+                        raw_rotation=None,
                         peak_pitch_rate=peak_pitch_rate,
                         rotation_end_roll=(
                             rotation_end_roll if state in (5, 6) else None
@@ -455,7 +483,12 @@ class FlipFlight:
                         rotation_end_pitch=(
                             rotation_end_pitch if state in (5, 6) else None
                         ),
+                        start_altitude=None,
+                        minimum_altitude=None,
+                        recovery_altitude=None,
+                        recovery_vertical_speed=None,
                         hover_thrust_ready=True,
+                        hover_thrust=None,
                         watchdog_active=True,
                         horizontal_distance=staging.horizontal_distance,
                         horizontal_speed=staging.horizontal_speed,
@@ -465,13 +498,9 @@ class FlipFlight:
                 )
 
                 if final_result is not None:
-                    if final_result != 1:
-                        detail = FLIP_RESULT_MESSAGES.get(
-                            final_result, f"Unknown result code {final_result}."
-                        )
-                        raise SafetyError(f"Flip aborted: {detail}")
-                    time.sleep(0.75)
-                    return
+                    break
+
+                assert_supervisor_safe(int(data["supervisor.info"]))
 
                 since_trigger = now - triggered_at
                 if not observed_maneuver and since_trigger > 2.0:
@@ -482,6 +511,76 @@ class FlipFlight:
                     raise SafetyError(
                         "The onboard flip did not finish within four seconds."
                     )
+
+        if final_result is None:
+            raise SafetyError("Flip telemetry ended before a final result arrived.")
+
+        recovery = self._read_recovery_snapshot(connection, context)
+        detail = FLIP_RESULT_MESSAGES.get(
+            final_result,
+            f"Unknown result code {final_result}.",
+        )
+        live.update(
+            build_flip_dashboard(
+                uri=context.uri,
+                phase=FLIP_STATE_NAMES.get(state, "Unknown"),
+                direction=settings.direction,
+                target_height=settings.height,
+                altitude=staging.altitude,
+                voltage=voltage,
+                battery_live=True,
+                minimum_flip_voltage=MINIMUM_FLIP_VOLTAGE,
+                rotation=rotation,
+                raw_rotation=recovery.raw_rotation,
+                peak_pitch_rate=peak_pitch_rate,
+                rotation_end_roll=rotation_end_roll,
+                rotation_end_pitch=rotation_end_pitch,
+                start_altitude=recovery.start_altitude,
+                minimum_altitude=recovery.minimum_altitude,
+                recovery_altitude=recovery.recovery_altitude,
+                recovery_vertical_speed=recovery.recovery_vertical_speed,
+                hover_thrust_ready=True,
+                hover_thrust=recovery.hover_thrust,
+                watchdog_active=True,
+                horizontal_distance=staging.horizontal_distance,
+                horizontal_speed=staging.horizontal_speed,
+                message=detail,
+            ),
+            refresh=True,
+        )
+
+        if final_result != 1:
+            raise SafetyError(f"Flip aborted: {detail}")
+        time.sleep(0.75)
+
+    @staticmethod
+    def _read_recovery_snapshot(
+        connection: Any,
+        context: FlightContext,
+    ) -> RecoverySnapshot:
+        config = LogConfig(name="Bumblebee recovery result", period_in_ms=50)
+        config.add_variable("bumblebee.rawRotation", "float")
+        config.add_variable("bumblebee.startAltitude", "float")
+        config.add_variable("bumblebee.minAltitude", "float")
+        config.add_variable("bumblebee.recoveryAltitude", "float")
+        config.add_variable("bumblebee.recoveryVz", "float")
+        config.add_variable("bumblebee.hoverThrust", "float")
+
+        with TimedTelemetryLogger(
+            connection,
+            config,
+            context.safety_limits.telemetry_timeout,
+        ) as logger:
+            _timestamp, data, _name = next(logger)
+
+        return RecoverySnapshot(
+            raw_rotation=float(data["bumblebee.rawRotation"]),
+            start_altitude=float(data["bumblebee.startAltitude"]),
+            minimum_altitude=float(data["bumblebee.minAltitude"]),
+            recovery_altitude=float(data["bumblebee.recoveryAltitude"]),
+            recovery_vertical_speed=float(data["bumblebee.recoveryVz"]),
+            hover_thrust=float(data["bumblebee.hoverThrust"]),
+        )
 
     @staticmethod
     def _trigger(connection: Any, direction: str) -> None:

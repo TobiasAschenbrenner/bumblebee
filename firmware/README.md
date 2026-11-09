@@ -49,9 +49,11 @@ before it can be considered reliable.
 Acro app version 1 must not be used: its absolute gyro integration could count
 reversal as forward rotation and apply recovery thrust before the Crazyflie was
 upright. Version 2 measures signed net rotation, confirms the end attitude, and
-holds zero thrust if either check fails. The Mac flight routine rejects firmware
-older than version 3. Version 3 lowers the experimental under-load start
-threshold to 3.50 V for padded testing.
+holds zero thrust if either check fails. Version 3 lowers the experimental
+under-load start threshold to 3.50 V for padded testing. Version 4 adds more
+vertical boost, hands control back sooner, records altitude recovery, and no
+longer reports success unless stable flight is recovered. The Mac flight routine
+rejects firmware older than version 4.
 
 ## Restore official firmware
 

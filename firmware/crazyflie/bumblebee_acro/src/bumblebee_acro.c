@@ -25,7 +25,7 @@
 #define DEBUG_MODULE "BUMBLEBEE"
 #include "debug.h"
 
-#define APP_VERSION 3
+#define APP_VERSION 4
 #define FLIP_REQUEST_MAGIC 0xB33F
 #define LOOP_PERIOD_MS 5
 #define ACRO_PERMIT_MS 1450
@@ -38,16 +38,18 @@
 #define MAX_HOVER_THRUST 55000.0f
 #define MAX_THRUST 60000.0f
 
-#define BOOST_DURATION_MS 160
+#define BOOST_DURATION_MS 280
 #define ROTATION_TIMEOUT_MS 850
-#define RECOVERY_DURATION_MS 220
-#define LEVEL_DURATION_MS 250
+#define LEVEL_RECOVERY_TIMEOUT_MS 300
+#define RECOVERY_OBSERVATION_MS 400
 #define TARGET_ROTATION_DEG 340.0f
 #define UPRIGHT_TOLERANCE_DEG 35.0f
+#define LEVEL_RELEASE_TOLERANCE_DEG 15.0f
+#define MIN_MANEUVER_ALTITUDE_M 0.25f
+#define MIN_RECOVERY_ALTITUDE_M 0.55f
+#define MIN_RECOVERY_VERTICAL_SPEED_M_S -0.50f
 #define PITCH_RATE_DEG_S 900.0f
-#define BOOST_THRUST_FACTOR 1.40f
 #define ROTATION_THRUST_FACTOR 0.22f
-#define RECOVERY_THRUST_FACTOR 1.30f
 
 typedef enum {
   flipStateIdle = 0,
@@ -71,6 +73,7 @@ typedef enum {
   flipResultSupervisorStopped = 8,
   flipResultPermitDenied = 9,
   flipResultNotUpright = 10,
+  flipResultRecoveryFailed = 11,
 } FlipResult;
 
 typedef enum {
@@ -92,6 +95,10 @@ static float peakPitchRate;
 static float rotationEndRoll;
 static float rotationEndPitch;
 static float learnedHoverThrust;
+static float startAltitude;
+static float minimumAltitude;
+static float recoveryAltitude;
+static float recoveryVerticalSpeed;
 static uint8_t acroPermitActive;
 
 static logVarId_t altitudeId;
@@ -100,6 +107,7 @@ static logVarId_t pitchId;
 static logVarId_t rollId;
 static logVarId_t pitchRateId;
 static logVarId_t thrustId;
+static logVarId_t verticalSpeedId;
 
 static float clampedThrust(const float thrust) {
   return fminf(MAX_THRUST, fmaxf(0.0f, thrust));
@@ -108,6 +116,10 @@ static float clampedThrust(const float thrust) {
 static bool supervisorAllowsManeuver(void) {
   return supervisorIsFlying() && !supervisorIsLocked() &&
          !supervisorIsCrashed();
+}
+
+static void updateMinimumAltitude(void) {
+  minimumAltitude = fminf(minimumAltitude, logGetFloat(altitudeId));
 }
 
 static void sendRateSetpoint(const float pitchRate, const float thrust) {
@@ -154,6 +166,7 @@ static bool holdRateFor(
       return false;
     }
     sendRateSetpoint(pitchRate, thrust);
+    updateMinimumAltitude();
     vTaskDelayUntil(&lastWakeTime, M2T(LOOP_PERIOD_MS));
   }
   return true;
@@ -168,9 +181,14 @@ static bool holdLevelFor(const uint32_t durationMs, const float thrust) {
       return false;
     }
     sendLevelSetpoint(thrust);
+    updateMinimumAltitude();
+    if (fabsf(logGetFloat(rollId)) <= LEVEL_RELEASE_TOLERANCE_DEG &&
+        fabsf(logGetFloat(pitchId)) <= LEVEL_RELEASE_TOLERANCE_DEG) {
+      return true;
+    }
     vTaskDelayUntil(&lastWakeTime, M2T(LOOP_PERIOD_MS));
   }
-  return true;
+  return false;
 }
 
 static FlipResult validateStart(void) {
@@ -233,6 +251,7 @@ static RotationResult rotate(const float hoverThrust) {
     }
 
     sendRateSetpoint(rateCommand, rotationThrust);
+    updateMinimumAltitude();
     const float effectivePitchRate = -logGetFloat(pitchRateId);
     const float directedPitchRate = directionSign * effectivePitchRate;
     const float stepSeconds = (float)LOOP_PERIOD_MS / 1000.0f;
@@ -257,6 +276,25 @@ static void releaseControl(void) {
   acroPermitActive = supervisorIsAcroPermitActive() ? 1 : 0;
 }
 
+static bool observeRecovery(void) {
+  TickType_t lastWakeTime = xTaskGetTickCount();
+  const uint32_t iterations = RECOVERY_OBSERVATION_MS / LOOP_PERIOD_MS;
+
+  for (uint32_t i = 0; i < iterations; ++i) {
+    updateMinimumAltitude();
+    recoveryAltitude = logGetFloat(altitudeId);
+    recoveryVerticalSpeed = logGetFloat(verticalSpeedId);
+    if (!supervisorAllowsManeuver()) {
+      return false;
+    }
+    vTaskDelayUntil(&lastWakeTime, M2T(LOOP_PERIOD_MS));
+  }
+
+  return isUpright() && minimumAltitude >= MIN_MANEUVER_ALTITUDE_M &&
+         recoveryAltitude >= MIN_RECOVERY_ALTITUDE_M &&
+         recoveryVerticalSpeed >= MIN_RECOVERY_VERTICAL_SPEED_M_S;
+}
+
 static void failRotationSafely(const FlipResult result) {
   flipResult = result;
   flipState = flipStateAborted;
@@ -276,11 +314,15 @@ static void performFlip(void) {
   }
 
   const float hoverThrust = learnedHoverThrust;
+  startAltitude = logGetFloat(altitudeId);
+  minimumAltitude = startAltitude;
+  recoveryAltitude = startAltitude;
+  recoveryVerticalSpeed = 0.0f;
   flipState = flipStateBoost;
   if (!holdRateFor(
         BOOST_DURATION_MS,
         0.0f,
-        hoverThrust * BOOST_THRUST_FACTOR
+        MAX_THRUST
       )) {
     flipResult = flipResultSupervisorStopped;
     flipState = flipStateAborted;
@@ -310,22 +352,25 @@ static void performFlip(void) {
   }
 
   flipState = flipStateRecover;
-  const bool recovered = holdRateFor(
-    RECOVERY_DURATION_MS,
-    0.0f,
-    hoverThrust * RECOVERY_THRUST_FACTOR
-  );
-
-  flipState = flipStateLevel;
-  const bool leveled = holdLevelFor(LEVEL_DURATION_MS, hoverThrust);
+  const bool leveled = holdLevelFor(LEVEL_RECOVERY_TIMEOUT_MS, MAX_THRUST);
   releaseControl();
 
-  if (!recovered || !leveled) {
-    flipResult = flipResultSupervisorStopped;
+  if (!leveled) {
+    recoveryAltitude = logGetFloat(altitudeId);
+    recoveryVerticalSpeed = logGetFloat(verticalSpeedId);
+    flipResult = supervisorAllowsManeuver() ?
+      flipResultRecoveryFailed : flipResultSupervisorStopped;
     flipState = flipStateAborted;
-  } else {
+    return;
+  }
+
+  flipState = flipStateLevel;
+  if (observeRecovery()) {
     flipResult = flipResultSuccess;
     flipState = flipStateComplete;
+  } else {
+    flipResult = flipResultRecoveryFailed;
+    flipState = flipStateAborted;
   }
 }
 
@@ -336,10 +381,12 @@ static bool findLogVariables(void) {
   rollId = logGetVarId("stateEstimate", "roll");
   pitchRateId = logGetVarId("gyro", "y");
   thrustId = logGetVarId("stabilizer", "thrust");
+  verticalSpeedId = logGetVarId("stateEstimate", "vz");
 
   return logVarIdIsValid(altitudeId) && logVarIdIsValid(batteryId) &&
          logVarIdIsValid(pitchId) && logVarIdIsValid(rollId) &&
-         logVarIdIsValid(pitchRateId) && logVarIdIsValid(thrustId);
+         logVarIdIsValid(pitchRateId) && logVarIdIsValid(thrustId) &&
+         logVarIdIsValid(verticalSpeedId);
 }
 
 static void updateHoverThrustEstimate(void) {
@@ -387,18 +434,6 @@ void appMain(void) {
       flipRequest = 0;
     }
 
-    if ((flipState == flipStateComplete || flipState == flipStateAborted) &&
-        !supervisorIsFlying()) {
-      flipState = flipStateIdle;
-      flipResult = flipResultNone;
-      rotationDeg = 0.0f;
-      rawRotationDeg = 0.0f;
-      peakPitchRate = 0.0f;
-      rotationEndRoll = 0.0f;
-      rotationEndPitch = 0.0f;
-      learnedHoverThrust = 0.0f;
-    }
-
     vTaskDelay(M2T(LOOP_PERIOD_MS));
   }
 }
@@ -418,5 +453,9 @@ LOG_ADD(LOG_FLOAT, peakRate, &peakPitchRate)
 LOG_ADD(LOG_FLOAT, endRoll, &rotationEndRoll)
 LOG_ADD(LOG_FLOAT, endPitch, &rotationEndPitch)
 LOG_ADD(LOG_FLOAT, hoverThrust, &learnedHoverThrust)
+LOG_ADD(LOG_FLOAT, startAltitude, &startAltitude)
+LOG_ADD(LOG_FLOAT, minAltitude, &minimumAltitude)
+LOG_ADD(LOG_FLOAT, recoveryAltitude, &recoveryAltitude)
+LOG_ADD(LOG_FLOAT, recoveryVz, &recoveryVerticalSpeed)
 LOG_ADD(LOG_UINT8, acroPermit, &acroPermitActive)
 LOG_GROUP_STOP(bumblebee)

@@ -19,7 +19,7 @@ class FlipFlightTests(TestCase):
         flight = FlipFlight()
 
         self.assertTrue(flight.requires_acro)
-        self.assertEqual(3, flight.requirements.minimum_acro_firmware_version)
+        self.assertEqual(4, flight.requirements.minimum_acro_firmware_version)
         self.assertEqual(FlightMode.ACRO.value, "acro")
 
     def test_settings_are_isolated_from_hover_arguments(self) -> None:
