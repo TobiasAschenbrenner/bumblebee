@@ -16,7 +16,7 @@ and guarded flight routines.
 - Automatic landing when a safety check fails
 - A shared 1.5 m altitude ceiling and 1.5 m flight radius
 - Separate Safe and explicitly unlocked Acro flight modes
-- An upright lift/recovery measurement for Acro development
+- A stock-controller motor and power measurement for Acro development
 - An experimental onboard flip routine with unsafe profiles version-gated
 
 ---
@@ -102,6 +102,22 @@ locked: the Mac requires a future v7 or newer firmware before it can be armed.
 Do not restore an older Mac revision to repeat the v6 lift test. The next step
 is a normal-controller motor and battery health measurement, not another direct
 thrust pulse.
+
+### Motor and power test
+
+Before another flip profile, measure the real airframe under the stock flight
+controller:
+
+```bash
+./fly --flight power-test
+```
+
+The test holds 0.40 m, makes one one-second climb at the normal Safe speed
+limit, and lands. It records all four actual and requested motor outputs,
+battery sag, tilt, climb response, and motor saturation. It never sends direct
+thrust or disables tumble protection. The result tells us whether the current
+battery and AI-deck/Flow-deck airframe have enough clean motor headroom to tune
+the next phase-based flip profile.
 
 ### Experimental flip
 
