@@ -48,8 +48,8 @@ class FlipFlightTests(TestCase):
 
         connection.cf.param.set_value.assert_has_calls(
             [
-                call("bumblebee.boostMm", "250"),
-                call("bumblebee.boostMs", "350"),
+                call("bumblebee.boostMm", "100"),
+                call("bumblebee.boostMs", "150"),
                 call("bumblebee.brakeDeg", "240"),
                 call("bumblebee.spinPct", "40"),
                 call("bumblebee.coastPct", "20"),
@@ -104,6 +104,7 @@ class FlipFlightTests(TestCase):
         self.assertTrue(is_pre_rotation_abort(result=5, raw_rotation=0.0))
 
     def test_abort_after_rotation_must_not_land(self) -> None:
+        self.assertFalse(is_pre_rotation_abort(result=4, raw_rotation=0.0))
         self.assertFalse(is_pre_rotation_abort(result=5, raw_rotation=10.0))
         self.assertFalse(is_pre_rotation_abort(result=10, raw_rotation=0.0))
 

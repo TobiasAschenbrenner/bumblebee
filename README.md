@@ -131,7 +131,7 @@ overhead.
 ./fly --flight flip
 ```
 
-The command stages at 1.10 m, learns the current airframe's hover thrust, and
+The command stages at 1.15 m, learns the current airframe's hover thrust, and
 asks for exact `ACRO` and `FLIP` confirmations before triggering anything. The
 maneuver triggers only after a one-second low-drift window and aborts if the
 staging hover moves more than 0.5 m from takeoff. It then runs on the Crazyflie

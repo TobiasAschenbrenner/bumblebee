@@ -45,6 +45,7 @@ def build_flip_dashboard(
     recovery_start_vertical_speed: float | None = None,
     brake_start_rotation: float | None = None,
     brake_end_rate: float | None = None,
+    maximum_tilt: float | None = None,
 ) -> Panel:
     details = Table.grid(expand=True, padding=(0, 1))
     details.add_column(width=18, style="dim")
@@ -61,6 +62,8 @@ def build_flip_dashboard(
         details.add_row("Vertical speed", f"{current_vertical_speed:+.2f} m/s")
     if minimum_altitude is not None:
         details.add_row("Lowest altitude", f"{minimum_altitude:.2f} m")
+    if maximum_tilt is not None:
+        details.add_row("Maximum tilt", f"{maximum_tilt:.1f}°")
     details.add_row(
         "Net rotation",
         f"{rotation:.0f}° / 335° target",

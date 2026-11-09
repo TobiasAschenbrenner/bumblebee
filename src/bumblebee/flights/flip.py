@@ -67,7 +67,7 @@ FLIP_RESULT_MESSAGES = {
 }
 
 MOTOR_PWM_MAX = 65_535
-CONTROLLED_LANDING_ABORT_RESULTS = frozenset({3, 4, 5, 6, 9, 12, 13})
+CONTROLLED_LANDING_ABORT_RESULTS = frozenset({3, 5, 6, 9, 12, 13})
 
 
 class PreRotationAbort(SafetyError):
@@ -84,8 +84,8 @@ def is_pre_rotation_abort(*, result: int, raw_rotation: float) -> bool:
 
 @dataclass(frozen=True)
 class FlipProfile:
-    boost_height_mm: int = 250
-    boost_duration_ms: int = 350
+    boost_height_mm: int = 100
+    boost_duration_ms: int = 150
     brake_start_degrees: int = 240
     spin_thrust_percent: int = 40
     coast_thrust_percent: int = 20
@@ -124,6 +124,8 @@ class RecoverySnapshot:
     brake_start_rotation: float
     brake_end_rate: float
     recovery_start_altitude: float
+    rotation_end_roll: float
+    rotation_end_pitch: float
 
 
 @dataclass
@@ -203,8 +205,8 @@ class FlipFlight:
         parser.add_argument(
             "--flip-height",
             type=_bounded_float(0.80, 1.20),
-            default=1.10,
-            help="flip staging height in metres, 0.80-1.20 (default: 1.10)",
+            default=1.15,
+            help="flip staging height in metres, 0.80-1.20 (default: 1.15)",
         )
         parser.add_argument(
             "--flip-settle",
@@ -515,8 +517,8 @@ class FlipFlight:
         control_config.add_variable("bumblebee.result", "uint8_t")
         control_config.add_variable("bumblebee.rotation", "float")
         control_config.add_variable("bumblebee.peakRate", "float")
-        control_config.add_variable("bumblebee.endRoll", "float")
-        control_config.add_variable("bumblebee.endPitch", "float")
+        control_config.add_variable("stateEstimate.roll", "float")
+        control_config.add_variable("stateEstimate.pitch", "float")
 
         dynamics_config = LogConfig(
             name="Bumblebee flip dynamics",
@@ -534,8 +536,7 @@ class FlipFlight:
         state = 0
         rotation = 0.0
         peak_pitch_rate = 0.0
-        rotation_end_roll = 0.0
-        rotation_end_pitch = 0.0
+        maximum_tilt = 0.0
         altitude = staging.altitude
         vertical_speed = 0.0
         minimum_altitude = staging.altitude
@@ -572,8 +573,13 @@ class FlipFlight:
                 result = int(data["bumblebee.result"])
                 rotation = float(data["bumblebee.rotation"])
                 peak_pitch_rate = float(data["bumblebee.peakRate"])
-                rotation_end_roll = float(data["bumblebee.endRoll"])
-                rotation_end_pitch = float(data["bumblebee.endPitch"])
+                live_roll = float(data["stateEstimate.roll"])
+                live_pitch = float(data["stateEstimate.pitch"])
+                maximum_tilt = max(
+                    maximum_tilt,
+                    abs(live_roll),
+                    abs(live_pitch),
+                )
                 altitude = float(dynamics["stateEstimate.z"])
                 vertical_speed = float(dynamics["stateEstimate.vz"])
                 motor_requests = tuple(
@@ -631,10 +637,10 @@ class FlipFlight:
                         raw_rotation=None,
                         peak_pitch_rate=peak_pitch_rate,
                         rotation_end_roll=(
-                            rotation_end_roll if state in (7, 8) else None
+                            live_roll if state in (7, 8) else None
                         ),
                         rotation_end_pitch=(
-                            rotation_end_pitch if state in (7, 8) else None
+                            live_pitch if state in (7, 8) else None
                         ),
                         recovery_altitude=None,
                         recovery_vertical_speed=None,
@@ -649,6 +655,7 @@ class FlipFlight:
                         minimum_voltage=minimum_voltage,
                         maximum_motor_request=maximum_motor_request,
                         motor_saturation_percent=saturation_percent,
+                        maximum_tilt=maximum_tilt,
                         boost_end_altitude=boost_end_altitude,
                         brake_start_altitude=brake_start_altitude,
                         recovery_start_altitude=recovery_start_altitude,
@@ -709,10 +716,14 @@ class FlipFlight:
                 raw_rotation=recovery.raw_rotation,
                 peak_pitch_rate=peak_pitch_rate,
                 rotation_end_roll=(
-                    None if pre_rotation_abort else rotation_end_roll
+                    None
+                    if pre_rotation_abort
+                    else recovery.rotation_end_roll
                 ),
                 rotation_end_pitch=(
-                    None if pre_rotation_abort else rotation_end_pitch
+                    None
+                    if pre_rotation_abort
+                    else recovery.rotation_end_pitch
                 ),
                 recovery_altitude=recovery.recovery_altitude,
                 recovery_vertical_speed=recovery.recovery_vertical_speed,
@@ -739,6 +750,7 @@ class FlipFlight:
                     if sample_count == 0
                     else saturation_samples / sample_count * 100.0
                 ),
+                maximum_tilt=maximum_tilt,
                 boost_end_altitude=(
                     None
                     if pre_rotation_abort
@@ -784,6 +796,8 @@ class FlipFlight:
         recovery_config.add_variable("bumblebee.hoverThrust", "float")
         recovery_config.add_variable("stateEstimate.z", "float")
         recovery_config.add_variable("stateEstimate.vz", "float")
+        recovery_config.add_variable("bumblebee.endRoll", "float")
+        recovery_config.add_variable("bumblebee.endPitch", "float")
 
         with TimedTelemetryLogger(
             connection,
@@ -823,6 +837,8 @@ class FlipFlight:
             recovery_start_altitude=float(
                 profile["bumblebee.recoveryStart"]
             ),
+            rotation_end_roll=float(data["bumblebee.endRoll"]),
+            rotation_end_pitch=float(data["bumblebee.endPitch"]),
         )
 
     @staticmethod
