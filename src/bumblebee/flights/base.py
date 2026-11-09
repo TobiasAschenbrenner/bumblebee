@@ -18,6 +18,7 @@ class FlightContext:
     console: Console
     uri: str
     landing_voltage: float
+    preflight_voltage: float | None = None
     mode: FlightMode = FlightMode.SAFE
     safety_limits: FlightSafetyLimits = DEFAULT_FLIGHT_SAFETY_LIMITS
 

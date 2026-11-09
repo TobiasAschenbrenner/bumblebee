@@ -135,6 +135,7 @@ def main(
                 console=CONSOLE,
                 uri=uri,
                 landing_voltage=landing_voltage(snapshot),
+                preflight_voltage=snapshot.telemetry.voltage,
                 mode=mode,
             ),
         )

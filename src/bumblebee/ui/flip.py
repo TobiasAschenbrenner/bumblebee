@@ -19,6 +19,8 @@ def build_flip_dashboard(
     target_height: float,
     altitude: float | None,
     voltage: float | None,
+    battery_live: bool,
+    minimum_flip_voltage: float,
     rotation: float,
     peak_pitch_rate: float | None,
     rotation_end_roll: float | None,
@@ -75,7 +77,15 @@ def build_flip_dashboard(
     )
     details.add_row(
         "Battery",
-        "Waiting…" if voltage is None else f"{voltage:.3f} V",
+        (
+            "Waiting…"
+            if voltage is None
+            else f"{voltage:.3f} V · {'live' if battery_live else 'preflight'}"
+        ),
+    )
+    details.add_row(
+        "Acro start minimum",
+        f"{minimum_flip_voltage:.3f} V under load",
     )
     details.add_row("Radio", uri)
 

@@ -5,7 +5,7 @@ from bumblebee.models import (
     PreflightSnapshot,
     Telemetry,
 )
-from bumblebee.preflight import preflight_issues
+from bumblebee.preflight import landing_voltage, preflight_issues
 
 
 def snapshot(
@@ -31,6 +31,9 @@ def snapshot(
 
 
 class PreflightTests(TestCase):
+    def test_normal_landing_uses_configured_voltage_floor(self) -> None:
+        self.assertEqual(3.50, landing_voltage(snapshot()))
+
     def test_safe_snapshot_has_no_issues(self) -> None:
         issues = preflight_issues(snapshot(), FlightRequirements(flow_deck=True))
         self.assertEqual([], issues)
@@ -62,27 +65,27 @@ class PreflightTests(TestCase):
             snapshot(),
             FlightRequirements(
                 flow_deck=True,
-                minimum_acro_firmware_version=2,
+                minimum_acro_firmware_version=3,
             ),
         )
         self.assertTrue(any("acro firmware" in issue for issue in issues))
 
     def test_acro_firmware_version_satisfies_requirement(self) -> None:
         issues = preflight_issues(
-            snapshot(acro_firmware_version=2),
+            snapshot(acro_firmware_version=3),
             FlightRequirements(
                 flow_deck=True,
-                minimum_acro_firmware_version=2,
+                minimum_acro_firmware_version=3,
             ),
         )
         self.assertEqual([], issues)
 
     def test_unsafe_acro_firmware_version_is_rejected(self) -> None:
         issues = preflight_issues(
-            snapshot(acro_firmware_version=1),
+            snapshot(acro_firmware_version=2),
             FlightRequirements(
                 flow_deck=True,
-                minimum_acro_firmware_version=2,
+                minimum_acro_firmware_version=3,
             ),
         )
 

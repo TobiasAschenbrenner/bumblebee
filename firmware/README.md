@@ -30,7 +30,7 @@ No private Wi-Fi credentials are included.
 ## Acro firmware safety model
 
 The flip app is idle until it receives Bumblebee's one-shot magic request. It
-checks that the Crazyflie is flying, level, between 0.75 and 1.25 m, above 3.75
+checks that the Crazyflie is flying, level, between 0.75 and 1.25 m, above 3.50
 V, and has learned a plausible hover-thrust value. The boost, rotation,
 recovery, and levelling phases then run onboard at 200 Hz.
 
@@ -50,7 +50,8 @@ Acro app version 1 must not be used: its absolute gyro integration could count
 reversal as forward rotation and apply recovery thrust before the Crazyflie was
 upright. Version 2 measures signed net rotation, confirms the end attitude, and
 holds zero thrust if either check fails. The Mac flight routine rejects firmware
-older than version 2.
+older than version 3. Version 3 lowers the experimental under-load start
+threshold to 3.50 V for padded testing.
 
 ## Restore official firmware
 

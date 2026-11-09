@@ -4,8 +4,11 @@ from unittest.mock import Mock, call, patch
 
 from bumblebee.flights.flip import (
     FLIP_REQUEST_MAGIC,
+    LOW_VOLTAGE_CONFIRM_SECONDS,
+    MINIMUM_FLIP_VOLTAGE,
     MAXIMUM_STAGING_DISTANCE,
     FlipFlight,
+    SustainedLowVoltageGuard,
     staging_violation,
 )
 from bumblebee.models import FlightMode
@@ -16,7 +19,7 @@ class FlipFlightTests(TestCase):
         flight = FlipFlight()
 
         self.assertTrue(flight.requires_acro)
-        self.assertEqual(2, flight.requirements.minimum_acro_firmware_version)
+        self.assertEqual(3, flight.requirements.minimum_acro_firmware_version)
         self.assertEqual(FlightMode.ACRO.value, "acro")
 
     def test_settings_are_isolated_from_hover_arguments(self) -> None:
@@ -74,3 +77,29 @@ class FlipFlightTests(TestCase):
         )
 
         self.assertIn("staging hover", violation or "")
+
+    def test_single_low_voltage_sample_does_not_stop_staging(self) -> None:
+        guard = SustainedLowVoltageGuard()
+        low_voltage = MINIMUM_FLIP_VOLTAGE - 0.05
+
+        self.assertFalse(guard.update(voltage=low_voltage, now=10.0))
+        self.assertFalse(guard.update(voltage=3.80, now=10.1))
+        self.assertIsNone(guard.below_since)
+
+    def test_sustained_low_voltage_stops_staging(self) -> None:
+        guard = SustainedLowVoltageGuard()
+        low_voltage = MINIMUM_FLIP_VOLTAGE - 0.05
+
+        self.assertFalse(guard.update(voltage=low_voltage, now=10.0))
+        self.assertFalse(
+            guard.update(
+                voltage=low_voltage,
+                now=10.0 + LOW_VOLTAGE_CONFIRM_SECONDS - 0.01,
+            )
+        )
+        self.assertTrue(
+            guard.update(
+                voltage=low_voltage,
+                now=10.0 + LOW_VOLTAGE_CONFIRM_SECONDS,
+            )
+        )

@@ -113,6 +113,10 @@ remain active. A radio-loss watchdog cuts motor power if its Mac heartbeat
 disappears. Power-cycle the Crazyflie after every Acro run to reset that
 watchdog.
 
+For the current experimental profile, Safe flights land at 3.50 V and the flip
+also requires at least 3.50 V under motor load. This lower Acro reserve is for
+padded testing only.
+
 Do not run the flip indoors near people, pets, walls, windows, or furniture.
 
 ---

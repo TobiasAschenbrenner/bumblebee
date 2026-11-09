@@ -6,8 +6,10 @@ import select
 import sys
 import time
 from argparse import ArgumentParser, Namespace
+from collections import deque
 from dataclasses import dataclass
 from math import hypot, isfinite
+from statistics import fmean
 from typing import Any
 
 from cflib.crazyflie.log import LogConfig
@@ -24,7 +26,9 @@ from bumblebee.ui.flip import build_flip_dashboard
 from bumblebee.watchdog import EmergencyStopWatchdog
 
 FLIP_REQUEST_MAGIC = 0xB33F
-MINIMUM_FLIP_VOLTAGE = 3.75
+MINIMUM_FLIP_VOLTAGE = 3.50
+STAGING_VOLTAGE_WINDOW_SAMPLES = 5
+LOW_VOLTAGE_CONFIRM_SECONDS = 0.5
 MAXIMUM_STAGING_DISTANCE = 0.50
 MAXIMUM_STAGING_SPEED = 0.12
 STABLE_WINDOW_SECONDS = 1.0
@@ -44,7 +48,7 @@ FLIP_RESULT_MESSAGES = {
     0: "No result was reported.",
     1: "The onboard flip sequence completed.",
     2: "The firmware did not consider the Crazyflie airborne.",
-    3: "The battery was below the onboard Acro minimum.",
+    3: "The under-load battery voltage was too low to safely begin the flip.",
     4: "The Crazyflie was not level enough to begin.",
     5: "The staging altitude was outside 0.75–1.25 m.",
     6: "The firmware could not learn a stable hover-thrust value.",
@@ -68,6 +72,22 @@ class StagingSnapshot:
     voltage: float
     horizontal_distance: float
     horizontal_speed: float
+
+
+@dataclass
+class SustainedLowVoltageGuard:
+    threshold: float = MINIMUM_FLIP_VOLTAGE
+    confirmation_seconds: float = LOW_VOLTAGE_CONFIRM_SECONDS
+    below_since: float | None = None
+
+    def update(self, *, voltage: float, now: float) -> bool:
+        if voltage >= self.threshold:
+            self.below_since = None
+            return False
+        if self.below_since is None:
+            self.below_since = now
+            return False
+        return now - self.below_since >= self.confirmation_seconds
 
 
 def staging_violation(
@@ -102,7 +122,7 @@ class FlipFlight:
     requirements_label = "Flow V2 · Acro firmware"
     requirements = FlightRequirements(
         flow_deck=True,
-        minimum_acro_firmware_version=2,
+        minimum_acro_firmware_version=3,
     )
     requires_acro = True
 
@@ -148,20 +168,25 @@ class FlipFlight:
         commander = MotionCommander(connection, default_height=settings.height)
         dashboard = build_flip_dashboard(
             uri=context.uri,
-            phase="Preparing",
+            phase="Taking off",
             direction=settings.direction,
             target_height=settings.height,
             altitude=None,
-            voltage=None,
+            voltage=context.preflight_voltage,
+            battery_live=False,
+            minimum_flip_voltage=MINIMUM_FLIP_VOLTAGE,
             rotation=0.0,
             peak_pitch_rate=None,
             rotation_end_roll=None,
             rotation_end_pitch=None,
             hover_thrust_ready=False,
-            watchdog_active=False,
+            watchdog_active=True,
             horizontal_distance=None,
             horizontal_speed=None,
-            message="Arming and starting the Acro safety heartbeat…",
+            message=(
+                "Ascending to the staging height. Live altitude, drift, and "
+                "under-load battery readings begin when takeoff completes…"
+            ),
         )
 
         request_arming(connection, True)
@@ -234,6 +259,10 @@ class FlipFlight:
 
         started = time.monotonic()
         stable_since: float | None = None
+        voltage_history: deque[float] = deque(
+            maxlen=STAGING_VOLTAGE_WINDOW_SAMPLES
+        )
+        voltage_guard = SustainedLowVoltageGuard()
         with TimedTelemetryLogger(
             connection,
             config,
@@ -243,7 +272,8 @@ class FlipFlight:
                 watchdog.assert_healthy()
                 now = time.monotonic()
                 elapsed = now - started
-                voltage = float(data["pm.vbat"])
+                voltage_history.append(float(data["pm.vbat"]))
+                voltage = fmean(voltage_history)
                 altitude = float(data["stateEstimate.z"])
                 horizontal_distance = hypot(
                     float(data["stateEstimate.x"]),
@@ -253,17 +283,6 @@ class FlipFlight:
                     float(data["stateEstimate.vx"]),
                     float(data["stateEstimate.vy"]),
                 )
-
-                assert_supervisor_safe(int(data["supervisor.info"]))
-                if self._return_pressed():
-                    raise SafetyError(
-                        "Landing was requested before the flip trigger."
-                    )
-                if voltage < MINIMUM_FLIP_VOLTAGE:
-                    raise SafetyError(
-                        f"Battery fell below {MINIMUM_FLIP_VOLTAGE:.2f} V "
-                        "while staging."
-                    )
 
                 violation = staging_violation(
                     horizontal_distance=horizontal_distance,
@@ -280,7 +299,41 @@ class FlipFlight:
                     stable_since = None
                 stable_for = 0.0 if stable_since is None else now - stable_since
                 learned = elapsed >= settings.settle_seconds
-                ready = learned and stable_for >= STABLE_WINDOW_SECONDS
+                battery_window_ready = (
+                    len(voltage_history) == STAGING_VOLTAGE_WINDOW_SAMPLES
+                )
+                low_voltage_confirmed = voltage_guard.update(
+                    voltage=voltage,
+                    now=now,
+                )
+                battery_ready = (
+                    battery_window_ready and voltage >= MINIMUM_FLIP_VOLTAGE
+                )
+                ready = (
+                    learned
+                    and stable_for >= STABLE_WINDOW_SECONDS
+                    and battery_ready
+                )
+
+                if not battery_window_ready:
+                    message = "Measuring the battery under motor load…"
+                elif voltage < MINIMUM_FLIP_VOLTAGE:
+                    message = (
+                        f"Under-load battery is {voltage:.3f} V; "
+                        f"{MINIMUM_FLIP_VOLTAGE:.2f} V is required. "
+                        "Confirming before landing…"
+                    )
+                elif ready:
+                    message = (
+                        "Staging is stable. Sending the onboard flip trigger…"
+                    )
+                else:
+                    message = (
+                        "Holding at staging height. The flip requires "
+                        f"{STABLE_WINDOW_SECONDS:.0f} second below "
+                        f"{MAXIMUM_STAGING_SPEED:.2f} m/s. "
+                        "Press Return to cancel."
+                    )
 
                 live.update(
                     build_flip_dashboard(
@@ -290,6 +343,8 @@ class FlipFlight:
                         target_height=settings.height,
                         altitude=altitude,
                         voltage=voltage,
+                        battery_live=True,
+                        minimum_flip_voltage=MINIMUM_FLIP_VOLTAGE,
                         rotation=0.0,
                         peak_pitch_rate=None,
                         rotation_end_roll=None,
@@ -298,19 +353,26 @@ class FlipFlight:
                         watchdog_active=True,
                         horizontal_distance=horizontal_distance,
                         horizontal_speed=horizontal_speed,
-                        message=(
-                            "Staging is stable. Sending the onboard flip trigger…"
-                            if ready
-                            else (
-                                "Holding at staging height. The flip requires "
-                                f"{STABLE_WINDOW_SECONDS:.0f} second below "
-                                f"{MAXIMUM_STAGING_SPEED:.2f} m/s. "
-                                "Press Return to cancel."
-                            )
-                        ),
+                        message=message,
                     ),
                     refresh=True,
                 )
+
+                assert_supervisor_safe(int(data["supervisor.info"]))
+                if self._return_pressed():
+                    raise SafetyError(
+                        "Landing was requested before the flip trigger."
+                    )
+                if low_voltage_confirmed:
+                    raise SafetyError(
+                        "Acro cancelled before the flip: battery averaged "
+                        f"{voltage:.3f} V under motor load "
+                        f"for {LOW_VOLTAGE_CONFIRM_SECONDS:.1f} seconds; "
+                        f"at least {MINIMUM_FLIP_VOLTAGE:.2f} V is required "
+                        "for the flip. Landing without attempting the maneuver."
+                    )
+                if violation is not None:
+                    raise SafetyError(violation)
                 if ready:
                     return StagingSnapshot(
                         altitude=altitude,
@@ -383,6 +445,8 @@ class FlipFlight:
                         target_height=settings.height,
                         altitude=staging.altitude,
                         voltage=voltage,
+                        battery_live=True,
+                        minimum_flip_voltage=MINIMUM_FLIP_VOLTAGE,
                         rotation=rotation,
                         peak_pitch_rate=peak_pitch_rate,
                         rotation_end_roll=(
