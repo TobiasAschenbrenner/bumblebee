@@ -73,10 +73,10 @@ class LiftTestFlight:
     key = "lift-test"
     title = "Lift and recovery test"
     description = "Measure upright thrust reserve without attempting a flip."
-    requirements_label = "Flow V2 · firmware v7+"
+    requirements_label = "Flow V2 · future firmware v9+"
     requirements = FlightRequirements(
         flow_deck=True,
-        minimum_acro_firmware_version=8,
+        minimum_acro_firmware_version=9,
     )
     requires_acro = False
     confirmation_word = "LIFT"

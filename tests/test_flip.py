@@ -24,7 +24,7 @@ class FlipFlightTests(TestCase):
         flight = FlipFlight()
 
         self.assertTrue(flight.requires_acro)
-        self.assertEqual(7, flight.requirements.minimum_acro_firmware_version)
+        self.assertEqual(8, flight.requirements.minimum_acro_firmware_version)
         self.assertEqual("FLIP", flight.confirmation_word)
         self.assertEqual(FlightMode.ACRO.value, "acro")
 
@@ -50,7 +50,8 @@ class FlipFlightTests(TestCase):
             [
                 call("bumblebee.boostMm", "100"),
                 call("bumblebee.boostMs", "150"),
-                call("bumblebee.brakeDeg", "240"),
+                call("bumblebee.brakeDeg", "210"),
+                call("bumblebee.brakeRate", "1000"),
                 call("bumblebee.spinPct", "40"),
                 call("bumblebee.coastPct", "20"),
                 call("bumblebee.brakePct", "60"),

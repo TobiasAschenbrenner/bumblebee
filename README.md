@@ -97,8 +97,8 @@ During flight:
 Firmware v6 temporarily disabled the flip and added an upright measurement
 routine. Its first test produced only 0.01 m of altitude gain and 0.12 m/s of
 upward speed, followed by a sideways loss of control. The routine is therefore
-locked. Firmware v7 also rejects this direct-thrust request, and the Mac
-requires a future v8 or newer implementation before it can be armed.
+locked. Firmware v8 also rejects this direct-thrust request, and the Mac
+requires a future v9 or newer implementation before it can be armed.
 
 Do not restore an older Mac revision to repeat the v6 lift test. The next step
 is a normal-controller motor and battery health measurement, not another direct
@@ -143,13 +143,14 @@ watchdog.
 
 Version 5 completed a full rotation on the AI-deck and Flow-deck airframe but
 lost too much height to recover safely. Version 6's direct lift measurement
-then destabilized sideways. Firmware v7 replaces both methods with a
-phase-controlled profile: stock position control creates the initial lift,
-then separate spin-up, coast, and angular-braking phases slow the rotation
-before stock position control takes over recovery. The Mac records live
-altitude, vertical speed, phase transitions, motor saturation, and battery sag.
-Its guarded phase values are sent before each run, allowing later tuning without
-another firmware flash. Do not restore v5 or the v6 lift test.
+then destabilized sideways. Firmware v7 introduced a phase-controlled profile,
+but padded tests showed that passive zero-rate braking still left more than
+430°/s of pitch rate after a complete rotation. Firmware v8 begins braking
+earlier with an active counter-rotation command and uses an onboard disarm for
+every unstable abort, so shutdown no longer depends on the radio or Mac. The
+Mac records live altitude, tilt, vertical speed, phase transitions, motor
+saturation, and battery sag. Guarded phase values are sent before every run.
+Do not restore an older Acro profile.
 
 Safe flights and the lift test land at 3.50 V. Any future flip profile must also
 pass an under-load battery check before its rotation can begin.

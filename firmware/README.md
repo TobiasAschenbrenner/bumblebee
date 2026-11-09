@@ -31,11 +31,12 @@ No private Wi-Fi credentials are included.
 ## Acro firmware safety model
 
 The experiment app is idle until it receives a one-shot Bumblebee request.
-Firmware v7 rejects the unsafe v6 direct-thrust lift request. Its flip profile
+Firmware v8 rejects the unsafe v6 direct-thrust lift request. Its flip profile
 uses the stock position controller for the initial lift, followed by separate
-rate-controlled spin-up, coast, and angular-braking phases. Stock position
-control resumes for recovery only after the Crazyflie is upright and its pitch
-rate has slowed.
+rate-controlled spin-up, coast, and active counter-rotation braking phases.
+Stock position control resumes for recovery only after the Crazyflie is upright
+and its pitch rate has slowed. Any unstable onboard phase requests an immediate
+disarm before releasing control.
 
 Flip profiles use a permit that is available only while flying, is capped at
 1.5 seconds, and expires without any Mac-side cleanup.
@@ -71,6 +72,11 @@ duration parameters are volatile and are written by the Mac before every run,
 so later profiles can be tuned without reflashing the Crazyflie. It also records
 the minimum altitude and voltage, lift gain, braking angle and end rate, and
 recovery handoff altitude for the next iteration.
+Version 7's earliest and strongest guarded passive brake still left 434°/s of
+pitch rate at 410° of rotation. It also demonstrated that a zero-collective
+rate setpoint can leave individual motors correcting attitude after impact.
+Version 8 replaces that brake with a bounded opposite-rate command and requests
+an onboard disarm for unstable boost, rotation, and recovery failures.
 
 ## Restore official firmware
 

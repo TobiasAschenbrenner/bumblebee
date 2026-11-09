@@ -86,7 +86,8 @@ def is_pre_rotation_abort(*, result: int, raw_rotation: float) -> bool:
 class FlipProfile:
     boost_height_mm: int = 100
     boost_duration_ms: int = 150
-    brake_start_degrees: int = 240
+    brake_start_degrees: int = 210
+    counter_brake_rate: int = 1_000
     spin_thrust_percent: int = 40
     coast_thrust_percent: int = 20
     brake_thrust_percent: int = 60
@@ -196,7 +197,7 @@ class FlipFlight:
     requirements_label = "Flow V2 · Acro firmware"
     requirements = FlightRequirements(
         flow_deck=True,
-        minimum_acro_firmware_version=7,
+        minimum_acro_firmware_version=8,
     )
     requires_acro = True
     confirmation_word = "FLIP"
@@ -852,6 +853,7 @@ class FlipFlight:
             ("bumblebee.boostMm", profile.boost_height_mm),
             ("bumblebee.boostMs", profile.boost_duration_ms),
             ("bumblebee.brakeDeg", profile.brake_start_degrees),
+            ("bumblebee.brakeRate", profile.counter_brake_rate),
             ("bumblebee.spinPct", profile.spin_thrust_percent),
             ("bumblebee.coastPct", profile.coast_thrust_percent),
             ("bumblebee.brakePct", profile.brake_thrust_percent),

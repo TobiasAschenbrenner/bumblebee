@@ -25,7 +25,7 @@
 #define DEBUG_MODULE "BUMBLEBEE"
 #include "debug.h"
 
-#define APP_VERSION 7
+#define APP_VERSION 8
 #define FLIP_REQUEST_MAGIC 0xB33F
 #define LIFT_TEST_REQUEST_MAGIC 0xB11F
 #define LOOP_PERIOD_MS 5
@@ -47,11 +47,11 @@
 #define RECOVERY_OBSERVATION_MS 400
 #define SPINUP_READY_RATE_DEG_S 700.0f
 #define ROTATION_RATE_DEG_S 950.0f
-#define FINISH_RATE_DEG_S 300.0f
-#define BRAKE_READY_RATE_DEG_S 300.0f
+#define FINISH_RATE_DEG_S 250.0f
+#define BRAKE_READY_RATE_DEG_S 180.0f
 #define TARGET_ROTATION_DEG 335.0f
 #define MAX_ROTATION_DEG 410.0f
-#define UPRIGHT_TOLERANCE_DEG 35.0f
+#define UPRIGHT_TOLERANCE_DEG 25.0f
 #define RECOVERY_LEVEL_TOLERANCE_DEG 20.0f
 #define MIN_RECOVERY_ALTITUDE_M 0.55f
 
@@ -59,8 +59,10 @@
 #define MAX_BOOST_HEIGHT_MM 300
 #define MIN_BOOST_DURATION_MS 150
 #define MAX_BOOST_DURATION_MS 350
-#define MIN_BRAKE_START_DEG 240
-#define MAX_BRAKE_START_DEG 300
+#define MIN_BRAKE_START_DEG 180
+#define MAX_BRAKE_START_DEG 260
+#define MIN_COUNTER_RATE_DEG_S 600
+#define MAX_COUNTER_RATE_DEG_S 1200
 #define MIN_SPIN_THRUST_PERCENT 25
 #define MAX_SPIN_THRUST_PERCENT 55
 #define MIN_COAST_THRUST_PERCENT 15
@@ -114,13 +116,14 @@ static int8_t direction = 1;
 
 // The Mac writes every profile value before triggering. Values are volatile
 // and return to these guarded defaults after a power cycle.
-static uint16_t profileBoostMm = 200;
-static uint16_t profileBoostMs = 250;
-static uint16_t profileBrakeDeg = 270;
+static uint16_t profileBoostMm = 100;
+static uint16_t profileBoostMs = 150;
+static uint16_t profileBrakeDeg = 210;
+static uint16_t profileCounterRate = 1000;
 static uint8_t profileSpinPct = 40;
 static uint8_t profileCoastPct = 20;
-static uint8_t profileBrakePct = 45;
-static uint16_t profileRecoverMs = 400;
+static uint8_t profileBrakePct = 60;
+static uint16_t profileRecoverMs = 500;
 
 static uint8_t flipState;
 static uint8_t flipResult;
@@ -204,6 +207,8 @@ static bool profileIsValid(void) {
          profileBoostMs <= MAX_BOOST_DURATION_MS &&
          profileBrakeDeg >= MIN_BRAKE_START_DEG &&
          profileBrakeDeg <= MAX_BRAKE_START_DEG &&
+         profileCounterRate >= MIN_COUNTER_RATE_DEG_S &&
+         profileCounterRate <= MAX_COUNTER_RATE_DEG_S &&
          profileSpinPct >= MIN_SPIN_THRUST_PERCENT &&
          profileSpinPct <= MAX_SPIN_THRUST_PERCENT &&
          profileCoastPct >= MIN_COAST_THRUST_PERCENT &&
@@ -290,6 +295,8 @@ static RotationResult rotateWithBraking(const float hoverThrust) {
   const float directionSign = direction >= 0 ? 1.0f : -1.0f;
   const float rateCommand = directionSign * ROTATION_RATE_DEG_S;
   const float finishRateCommand = directionSign * FINISH_RATE_DEG_S;
+  const float counterRateCommand =
+    -directionSign * (float)profileCounterRate;
   const float spinThrust =
     hoverThrust * (float)profileSpinPct / 100.0f;
   const float coastThrust =
@@ -347,8 +354,12 @@ static RotationResult rotateWithBraking(const float hoverThrust) {
       return rotationSupervisorStopped;
     }
 
-    const float commandedRate =
-      directedRate > BRAKE_READY_RATE_DEG_S ? 0.0f : finishRateCommand;
+    float commandedRate = 0.0f;
+    if (directedRate > BRAKE_READY_RATE_DEG_S) {
+      commandedRate = counterRateCommand;
+    } else if (rotationDeg < TARGET_ROTATION_DEG) {
+      commandedRate = finishRateCommand;
+    }
     directedRate = runRotationStep(
       commandedRate,
       brakeThrust,
@@ -357,8 +368,7 @@ static RotationResult rotateWithBraking(const float hoverThrust) {
     brakeEndRate = directedRate;
 
     if (rotationDeg >= TARGET_ROTATION_DEG &&
-        directedRate <= BRAKE_READY_RATE_DEG_S &&
-        directedRate >= -100.0f &&
+        fabsf(directedRate) <= BRAKE_READY_RATE_DEG_S &&
         isUprightWithin(UPRIGHT_TOLERANCE_DEG)) {
       rotationEndRoll = logGetFloat(rollId);
       rotationEndPitch = logGetFloat(pitchId);
@@ -369,12 +379,6 @@ static RotationResult rotateWithBraking(const float hoverThrust) {
       rotationEndPitch = logGetFloat(pitchId);
       return rotationNotUpright;
     }
-    if (directedRate < -150.0f && rotationDeg < TARGET_ROTATION_DEG) {
-      rotationEndRoll = logGetFloat(rollId);
-      rotationEndPitch = logGetFloat(pitchId);
-      return rotationBrakingFailed;
-    }
-
     vTaskDelayUntil(&lastWakeTime, M2T(LOOP_PERIOD_MS));
     rotationElapsedMs += LOOP_PERIOD_MS;
   }
@@ -422,24 +426,15 @@ static bool observeRecovery(void) {
          logGetFloat(altitudeId) >= MIN_RECOVERY_ALTITUDE_M;
 }
 
-static void holdZeroUntilPermitExpires(void) {
-  TickType_t lastWakeTime = xTaskGetTickCount();
-  const uint32_t iterations = ACRO_PERMIT_MS / LOOP_PERIOD_MS;
-
-  for (uint32_t i = 0; i < iterations; ++i) {
-    if (!supervisorIsAcroPermitActive()) {
-      break;
-    }
-    sendRateSetpoint(0.0f, 0.0f);
-    vTaskDelayUntil(&lastWakeTime, M2T(LOOP_PERIOD_MS));
-  }
+static void disarmAndReleaseControl(void) {
+  supervisorRequestArming(false);
   releaseControl();
 }
 
 static void failRotationSafely(const FlipResult result) {
   flipResult = result;
   flipState = flipStateAborted;
-  holdZeroUntilPermitExpires();
+  disarmAndReleaseControl();
 }
 
 static void performFlip(void) {
@@ -462,7 +457,12 @@ static void performFlip(void) {
   flipResult = runBoost();
   if (flipResult != flipResultNone) {
     flipState = flipStateAborted;
-    releaseControl();
+    if (flipResult == flipResultNotLevel ||
+        flipResult == flipResultSupervisorStopped) {
+      disarmAndReleaseControl();
+    } else {
+      releaseControl();
+    }
     return;
   }
 
@@ -490,13 +490,14 @@ static void performFlip(void) {
 
   flipState = flipStateRecover;
   const bool recovered = runPositionRecovery();
-  releaseControl();
   if (!recovered) {
     flipResult = supervisorAllowsManeuver() ?
       flipResultRecoveryFailed : flipResultSupervisorStopped;
     flipState = flipStateAborted;
+    disarmAndReleaseControl();
     return;
   }
+  releaseControl();
 
   flipState = flipStateVerify;
   if (observeRecovery()) {
@@ -505,6 +506,7 @@ static void performFlip(void) {
   } else {
     flipResult = flipResultRecoveryFailed;
     flipState = flipStateAborted;
+    supervisorRequestArming(false);
   }
 }
 
@@ -580,6 +582,7 @@ PARAM_ADD(PARAM_INT8, direction, &direction)
 PARAM_ADD(PARAM_UINT16, boostMm, &profileBoostMm)
 PARAM_ADD(PARAM_UINT16, boostMs, &profileBoostMs)
 PARAM_ADD(PARAM_UINT16, brakeDeg, &profileBrakeDeg)
+PARAM_ADD(PARAM_UINT16, brakeRate, &profileCounterRate)
 PARAM_ADD(PARAM_UINT8, spinPct, &profileSpinPct)
 PARAM_ADD(PARAM_UINT8, coastPct, &profileCoastPct)
 PARAM_ADD(PARAM_UINT8, brakePct, &profileBrakePct)
