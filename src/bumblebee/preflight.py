@@ -31,6 +31,9 @@ def collect_preflight_snapshot(connection: Any) -> PreflightSnapshot:
         acro_firmware_version=read_optional_parameter_int(
             connection, "bumblebee.version"
         ),
+        acro_immediate_stop_ready=(
+            read_optional_parameter_int(connection, "bumblebee.stopReady") == 1
+        ),
     )
 
 
@@ -56,6 +59,13 @@ def preflight_issues(
             issues.append(
                 f"Acro firmware version {installed_acro_version} is unsafe for "
                 f"this routine; version {minimum_acro_version} or newer is required"
+            )
+        elif (
+            installed_acro_version >= 9
+            and snapshot.acro_immediate_stop_ready is not True
+        ):
+            issues.append(
+                "the Acro firmware's immediate motor-stop check did not pass"
             )
     if telemetry.power_state != 0:
         issues.append(

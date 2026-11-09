@@ -16,6 +16,7 @@
 #include "app.h"
 #include "commander.h"
 #include "log.h"
+#include "motors.h"
 #include "param.h"
 #include "supervisor.h"
 
@@ -25,7 +26,7 @@
 #define DEBUG_MODULE "BUMBLEBEE"
 #include "debug.h"
 
-#define APP_VERSION 8
+#define APP_VERSION 9
 #define FLIP_REQUEST_MAGIC 0xB33F
 #define LIFT_TEST_REQUEST_MAGIC 0xB11F
 #define LOOP_PERIOD_MS 5
@@ -43,7 +44,7 @@
 
 #define SPINUP_TIMEOUT_MS 180
 #define ROTATION_TIMEOUT_MS 900
-#define BRAKE_TIMEOUT_MS 350
+#define BRAKE_TIMEOUT_MS 500
 #define RECOVERY_OBSERVATION_MS 400
 #define SPINUP_READY_RATE_DEG_S 700.0f
 #define ROTATION_RATE_DEG_S 950.0f
@@ -59,8 +60,8 @@
 #define MAX_BOOST_HEIGHT_MM 300
 #define MIN_BOOST_DURATION_MS 150
 #define MAX_BOOST_DURATION_MS 350
-#define MIN_BRAKE_START_DEG 180
-#define MAX_BRAKE_START_DEG 260
+#define MIN_BRAKE_START_DEG 80
+#define MAX_BRAKE_START_DEG 220
 #define MIN_COUNTER_RATE_DEG_S 600
 #define MAX_COUNTER_RATE_DEG_S 1200
 #define MIN_SPIN_THRUST_PERCENT 25
@@ -118,8 +119,8 @@ static int8_t direction = 1;
 // and return to these guarded defaults after a power cycle.
 static uint16_t profileBoostMm = 100;
 static uint16_t profileBoostMs = 150;
-static uint16_t profileBrakeDeg = 210;
-static uint16_t profileCounterRate = 1000;
+static uint16_t profileBrakeDeg = 100;
+static uint16_t profileCounterRate = 1200;
 static uint8_t profileSpinPct = 40;
 static uint8_t profileCoastPct = 20;
 static uint8_t profileBrakePct = 60;
@@ -141,6 +142,7 @@ static float brakeStartRotation;
 static float brakeEndRate;
 static float recoveryStartAltitude;
 static uint8_t acroPermitActive;
+static uint8_t immediateStopReady;
 
 static logVarId_t altitudeId;
 static logVarId_t batteryId;
@@ -428,7 +430,13 @@ static bool observeRecovery(void) {
 
 static void disarmAndReleaseControl(void) {
   supervisorRequestArming(false);
+  motorsStop();
   releaseControl();
+
+  // A stabilizer iteration that started before disarming may still finish.
+  // Stop once more after that iteration has had time to leave the motor path.
+  vTaskDelay(M2T(2));
+  motorsStop();
 }
 
 static void failRotationSafely(const FlipResult result) {
@@ -506,8 +514,18 @@ static void performFlip(void) {
   } else {
     flipResult = flipResultRecoveryFailed;
     flipState = flipStateAborted;
-    supervisorRequestArming(false);
+    disarmAndReleaseControl();
   }
+}
+
+static void verifyImmediateStopPath(void) {
+  motorsStop();
+  vTaskDelay(M2T(2));
+  immediateStopReady =
+    motorsGetRatio(MOTOR_M1) == 0 &&
+    motorsGetRatio(MOTOR_M2) == 0 &&
+    motorsGetRatio(MOTOR_M3) == 0 &&
+    motorsGetRatio(MOTOR_M4) == 0;
 }
 
 static bool findLogVariables(void) {
@@ -543,6 +561,7 @@ static void updateHoverThrustEstimate(void) {
 
 void appMain(void) {
   vTaskDelay(M2T(3000));
+  verifyImmediateStopPath();
   if (!findLogVariables()) {
     DEBUG_PRINT("Required log variables are unavailable\n");
     flipState = flipStateAborted;
@@ -577,6 +596,7 @@ void appMain(void) {
 
 PARAM_GROUP_START(bumblebee)
 PARAM_ADD(PARAM_UINT8 | PARAM_RONLY, version, &firmwareVersion)
+PARAM_ADD(PARAM_UINT8 | PARAM_RONLY, stopReady, &immediateStopReady)
 PARAM_ADD(PARAM_UINT16, flipRequest, &flipRequest)
 PARAM_ADD(PARAM_INT8, direction, &direction)
 PARAM_ADD(PARAM_UINT16, boostMm, &profileBoostMm)

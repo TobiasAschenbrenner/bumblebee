@@ -31,7 +31,7 @@ No private Wi-Fi credentials are included.
 ## Acro firmware safety model
 
 The experiment app is idle until it receives a one-shot Bumblebee request.
-Firmware v8 rejects the unsafe v6 direct-thrust lift request. Its flip profile
+Firmware v9 rejects the unsafe v6 direct-thrust lift request. Its flip profile
 uses the stock position controller for the initial lift, followed by separate
 rate-controlled spin-up, coast, and active counter-rotation braking phases.
 Stock position control resumes for recovery only after the Crazyflie is upright
@@ -76,7 +76,17 @@ Version 7's earliest and strongest guarded passive brake still left 434°/s of
 pitch rate at 410° of rotation. It also demonstrated that a zero-collective
 rate setpoint can leave individual motors correcting attitude after impact.
 Version 8 replaces that brake with a bounded opposite-rate command and requests
-an onboard disarm for unstable boost, rotation, and recovery failures.
+an onboard disarm for unstable boost, rotation, and recovery failures. Its
+first flight completed the rotation but reached the floor before recovery; the
+normal controller briefly restored enough thrust after impact for a small hop.
+Version 9 issues an immediate motor stop on unstable failures and prevents the
+normal controller from running while disarmed. This firmware uses explicit
+arming instead of the stock Crazyflie 2.1 auto-arm behavior; all Bumblebee
+flight routines already arm before takeoff and disarm during cleanup. A
+stationary startup check must
+verify that all four motor commands reached zero before the Mac will permit an
+Acro flight. It also starts active braking near 100° instead of 210°, based on
+the measured v8 pitch rate and deceleration.
 
 ## Restore official firmware
 

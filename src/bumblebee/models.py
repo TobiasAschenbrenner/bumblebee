@@ -39,6 +39,7 @@ class PreflightSnapshot:
     firmware_low_voltage: float
     telemetry: Telemetry
     acro_firmware_version: int | None = None
+    acro_immediate_stop_ready: bool | None = None
 
 
 @dataclass(frozen=True)

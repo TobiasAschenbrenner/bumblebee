@@ -80,6 +80,15 @@ def build_diagnostics_dashboard(
             else Text("○ Not installed · Safe flights only", style="dim")
         ),
     )
+    if snapshot.acro_firmware_version is not None:
+        details.add_row(
+            "Acro motor stop",
+            result_text(
+                snapshot.acro_immediate_stop_ready is True,
+                "Verified",
+                "Not verified",
+            ),
+        )
     details.add_row(
         "Battery",
         Text(

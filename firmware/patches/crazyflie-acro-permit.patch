@@ -110,3 +110,14 @@ index 86bdc0ff..8d38b758 100644
    if (isTumbled) {
      if (tumbleCheckEnabled)
      {
+@@ -464,7 +500,8 @@ bool supervisorAreMotorsAllowedToRun() {
+ bool supervisorAreMotorsAllowedToRun() {
+   SupervisorMem_t* this = &supervisorMem;
+-  return (this->state == supervisorStateReadyToFly) ||
++  return supervisorIsArmed() &&
++         ((this->state == supervisorStateReadyToFly) ||
+          (this->state == supervisorStateFlying) ||
+          (this->state == supervisorStateWarningLevelOut) ||
+-         (this->state == supervisorStateLanded);
++         (this->state == supervisorStateLanded));
+ }

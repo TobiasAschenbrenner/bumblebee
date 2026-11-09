@@ -15,6 +15,7 @@ def snapshot(
     flow_deck: bool = True,
     supervisor_info: int | None = 1 << 3,
     acro_firmware_version: int | None = None,
+    acro_immediate_stop_ready: bool | None = None,
 ) -> PreflightSnapshot:
     return PreflightSnapshot(
         flow_deck_attached=flow_deck,
@@ -27,6 +28,7 @@ def snapshot(
             downward_range_mm=42,
         ),
         acro_firmware_version=acro_firmware_version,
+        acro_immediate_stop_ready=acro_immediate_stop_ready,
     )
 
 
@@ -78,6 +80,34 @@ class PreflightTests(TestCase):
                 minimum_acro_firmware_version=5,
             ),
         )
+        self.assertEqual([], issues)
+
+    def test_v9_acro_firmware_requires_verified_immediate_stop(self) -> None:
+        issues = preflight_issues(
+            snapshot(
+                acro_firmware_version=9,
+                acro_immediate_stop_ready=False,
+            ),
+            FlightRequirements(
+                flow_deck=True,
+                minimum_acro_firmware_version=9,
+            ),
+        )
+
+        self.assertTrue(any("motor-stop" in issue for issue in issues))
+
+    def test_v9_acro_firmware_accepts_verified_immediate_stop(self) -> None:
+        issues = preflight_issues(
+            snapshot(
+                acro_firmware_version=9,
+                acro_immediate_stop_ready=True,
+            ),
+            FlightRequirements(
+                flow_deck=True,
+                minimum_acro_firmware_version=9,
+            ),
+        )
+
         self.assertEqual([], issues)
 
     def test_unsafe_acro_firmware_version_is_rejected(self) -> None:
