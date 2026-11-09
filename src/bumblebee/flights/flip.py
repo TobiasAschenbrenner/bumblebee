@@ -95,6 +95,10 @@ class FlipProfile:
 
 
 PHASED_PROFILE = FlipProfile()
+HEIGHT_RECOVERY_TEST_PROFILE = FlipProfile(
+    brake_start_degrees=210,
+    counter_brake_rate=1_000,
+)
 
 
 @dataclass(frozen=True)
@@ -103,6 +107,7 @@ class FlipSettings:
     settle_seconds: float
     direction: str
     profile: FlipProfile = PHASED_PROFILE
+    high_recovery_test: bool = False
 
 
 @dataclass(frozen=True)
@@ -197,7 +202,7 @@ class FlipFlight:
     requirements_label = "Flow V2 · Acro firmware"
     requirements = FlightRequirements(
         flow_deck=True,
-        minimum_acro_firmware_version=9,
+        minimum_acro_firmware_version=10,
     )
     requires_acro = True
     confirmation_word = "FLIP"
@@ -221,8 +226,24 @@ class FlipFlight:
             default="backward",
             help="rotation direction (default: backward)",
         )
+        parser.add_argument(
+            "--high-recovery-test",
+            action="store_true",
+            help=(
+                "stage at 2.00 m using the last tested rotation profile so "
+                "only the available recovery height changes"
+            ),
+        )
 
     def settings_from(self, args: Namespace) -> FlipSettings:
+        if args.high_recovery_test:
+            return FlipSettings(
+                height=2.0,
+                settle_seconds=args.flip_settle,
+                direction=args.flip_direction,
+                profile=HEIGHT_RECOVERY_TEST_PROFILE,
+                high_recovery_test=True,
+            )
         return FlipSettings(
             height=args.flip_height,
             settle_seconds=args.flip_settle,
@@ -231,6 +252,11 @@ class FlipFlight:
         )
 
     def plan(self, settings: FlipSettings) -> str:
+        if settings.high_recovery_test:
+            return (
+                f"stage at {settings.height:.2f} m, then one "
+                f"{settings.direction} flip using the height-only test profile"
+            )
         return (
             f"stage at {settings.height:.2f} m, then one phase-controlled "
             f"{settings.direction} flip"

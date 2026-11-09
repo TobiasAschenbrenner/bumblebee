@@ -4,6 +4,7 @@ from unittest.mock import Mock, call, patch
 
 from bumblebee.flights.flip import (
     FLIP_REQUEST_MAGIC,
+    HEIGHT_RECOVERY_TEST_PROFILE,
     LOW_VOLTAGE_CONFIRM_SECONDS,
     MINIMUM_RECOVERY_ALTITUDE,
     MINIMUM_RECOVERY_VERTICAL_SPEED,
@@ -24,7 +25,7 @@ class FlipFlightTests(TestCase):
         flight = FlipFlight()
 
         self.assertTrue(flight.requires_acro)
-        self.assertEqual(9, flight.requirements.minimum_acro_firmware_version)
+        self.assertEqual(10, flight.requirements.minimum_acro_firmware_version)
         self.assertEqual("FLIP", flight.confirmation_word)
         self.assertEqual(FlightMode.ACRO.value, "acro")
 
@@ -34,11 +35,29 @@ class FlipFlightTests(TestCase):
                 flip_height=1.0,
                 flip_settle=3.0,
                 flip_direction="backward",
+                high_recovery_test=False,
             )
         )
 
         self.assertEqual(1.0, settings.height)
         self.assertEqual("backward", settings.direction)
+        self.assertFalse(settings.high_recovery_test)
+
+    def test_high_recovery_test_changes_only_height_and_test_profile(self) -> None:
+        settings = FlipFlight().settings_from(
+            Namespace(
+                flip_height=1.15,
+                flip_settle=3.0,
+                flip_direction="backward",
+                high_recovery_test=True,
+            )
+        )
+
+        self.assertEqual(2.0, settings.height)
+        self.assertEqual(HEIGHT_RECOVERY_TEST_PROFILE, settings.profile)
+        self.assertTrue(settings.high_recovery_test)
+        self.assertEqual(210, settings.profile.brake_start_degrees)
+        self.assertEqual(1_000, settings.profile.counter_brake_rate)
 
     @patch("bumblebee.flights.flip.time.sleep")
     def test_trigger_sets_direction_before_magic_request(self, sleep: Mock) -> None:

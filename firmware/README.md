@@ -87,6 +87,10 @@ stationary startup check must
 verify that all four motor commands reached zero before the Mac will permit an
 Acro flight. It also starts active braking near 100° instead of 210°, based on
 the measured v8 pitch rate and deceleration.
+Version 10 adds an explicit two-metre recovery-height experiment. It keeps the
+normal Safe-mode ceiling at 1.5 m and retains the version 9 motor cutoff. The
+high test uses the last flown v8 rotation profile, changing only the staging
+height so the result can show whether additional recovery room is sufficient.
 
 ## Restore official firmware
 
