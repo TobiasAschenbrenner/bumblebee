@@ -12,6 +12,7 @@ from bumblebee.flights.flip import (
     PHASED_PROFILE,
     FlipFlight,
     SustainedLowVoltageGuard,
+    is_pre_rotation_abort,
     recovery_violation,
     staging_violation,
 )
@@ -47,7 +48,7 @@ class FlipFlightTests(TestCase):
 
         connection.cf.param.set_value.assert_has_calls(
             [
-                call("bumblebee.boostMm", "300"),
+                call("bumblebee.boostMm", "250"),
                 call("bumblebee.boostMs", "350"),
                 call("bumblebee.brakeDeg", "240"),
                 call("bumblebee.spinPct", "40"),
@@ -98,6 +99,13 @@ class FlipFlightTests(TestCase):
 
         commander.land.assert_called_once_with(velocity=0.15)
         stop_and_disarm.assert_called_once_with(connection, context)
+
+    def test_validation_rejection_before_rotation_can_land(self) -> None:
+        self.assertTrue(is_pre_rotation_abort(result=5, raw_rotation=0.0))
+
+    def test_abort_after_rotation_must_not_land(self) -> None:
+        self.assertFalse(is_pre_rotation_abort(result=5, raw_rotation=10.0))
+        self.assertFalse(is_pre_rotation_abort(result=10, raw_rotation=0.0))
 
     def test_slow_reported_drift_is_accepted_while_staging(self) -> None:
         self.assertIsNone(

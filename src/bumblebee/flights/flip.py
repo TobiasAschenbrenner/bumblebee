@@ -67,11 +67,24 @@ FLIP_RESULT_MESSAGES = {
 }
 
 MOTOR_PWM_MAX = 65_535
+CONTROLLED_LANDING_ABORT_RESULTS = frozenset({3, 4, 5, 6, 9, 12, 13})
+
+
+class PreRotationAbort(SafetyError):
+    """A rejected flip request that is still safe to land normally."""
+
+
+def is_pre_rotation_abort(*, result: int, raw_rotation: float) -> bool:
+    return (
+        result in CONTROLLED_LANDING_ABORT_RESULTS
+        and isfinite(raw_rotation)
+        and raw_rotation < 5.0
+    )
 
 
 @dataclass(frozen=True)
 class FlipProfile:
-    boost_height_mm: int = 300
+    boost_height_mm: int = 250
     boost_duration_ms: int = 350
     brake_start_degrees: int = 240
     spin_thrust_percent: int = 40
@@ -283,14 +296,18 @@ class FlipFlight:
                             settings.direction,
                             settings.profile,
                         )
-                        self._monitor_flip(
-                            connection,
-                            settings,
-                            context,
-                            watchdog,
-                            live,
-                            staging,
-                        )
+                        try:
+                            self._monitor_flip(
+                                connection,
+                                settings,
+                                context,
+                                watchdog,
+                                live,
+                                staging,
+                            )
+                        except PreRotationAbort:
+                            controlled_landing_allowed = True
+                            raise
                         controlled_landing_allowed = True
                 finally:
                     self._finish_flight(
@@ -672,6 +689,10 @@ class FlipFlight:
             final_result,
             f"Unknown result code {final_result}.",
         )
+        pre_rotation_abort = is_pre_rotation_abort(
+            result=final_result,
+            raw_rotation=recovery.raw_rotation,
+        )
         if host_recovery_issue is not None:
             detail = f"{detail} {host_recovery_issue}"
         live.update(
@@ -687,8 +708,12 @@ class FlipFlight:
                 rotation=rotation,
                 raw_rotation=recovery.raw_rotation,
                 peak_pitch_rate=peak_pitch_rate,
-                rotation_end_roll=rotation_end_roll,
-                rotation_end_pitch=rotation_end_pitch,
+                rotation_end_roll=(
+                    None if pre_rotation_abort else rotation_end_roll
+                ),
+                rotation_end_pitch=(
+                    None if pre_rotation_abort else rotation_end_pitch
+                ),
                 recovery_altitude=recovery.recovery_altitude,
                 recovery_vertical_speed=recovery.recovery_vertical_speed,
                 hover_thrust_ready=True,
@@ -698,8 +723,16 @@ class FlipFlight:
                 horizontal_speed=staging.horizontal_speed,
                 message=detail,
                 current_vertical_speed=recovery.recovery_vertical_speed,
-                minimum_altitude=recovery.minimum_altitude,
-                minimum_voltage=recovery.minimum_voltage,
+                minimum_altitude=(
+                    minimum_altitude
+                    if pre_rotation_abort
+                    else recovery.minimum_altitude
+                ),
+                minimum_voltage=(
+                    minimum_voltage
+                    if pre_rotation_abort
+                    else recovery.minimum_voltage
+                ),
                 maximum_motor_request=maximum_motor_request,
                 motor_saturation_percent=(
                     0.0
@@ -707,7 +740,9 @@ class FlipFlight:
                     else saturation_samples / sample_count * 100.0
                 ),
                 boost_end_altitude=(
-                    staging.altitude + recovery.boost_gain
+                    None
+                    if pre_rotation_abort
+                    else staging.altitude + recovery.boost_gain
                 ),
                 brake_start_altitude=brake_start_altitude,
                 recovery_start_altitude=(
@@ -718,13 +753,21 @@ class FlipFlight:
                 recovery_start_vertical_speed=(
                     recovery_start_vertical_speed
                 ),
-                brake_start_rotation=recovery.brake_start_rotation,
-                brake_end_rate=recovery.brake_end_rate,
+                brake_start_rotation=(
+                    None
+                    if pre_rotation_abort
+                    else recovery.brake_start_rotation
+                ),
+                brake_end_rate=(
+                    None if pre_rotation_abort else recovery.brake_end_rate
+                ),
             ),
             refresh=True,
         )
 
         if final_result != 1:
+            if pre_rotation_abort:
+                raise PreRotationAbort(f"Flip rejected before rotation: {detail}")
             raise SafetyError(f"Flip aborted: {detail}")
         time.sleep(0.75)
 
