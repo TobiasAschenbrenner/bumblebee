@@ -47,18 +47,57 @@ class FlipFlightTests(TestCase):
 
         connection.cf.param.set_value.assert_has_calls(
             [
-                call("bumblebee.boostMm", "200"),
-                call("bumblebee.boostMs", "250"),
-                call("bumblebee.brakeDeg", "270"),
+                call("bumblebee.boostMm", "300"),
+                call("bumblebee.boostMs", "350"),
+                call("bumblebee.brakeDeg", "240"),
                 call("bumblebee.spinPct", "40"),
                 call("bumblebee.coastPct", "20"),
-                call("bumblebee.brakePct", "45"),
-                call("bumblebee.recoverMs", "400"),
+                call("bumblebee.brakePct", "60"),
+                call("bumblebee.recoverMs", "500"),
                 call("bumblebee.direction", "1"),
                 call("bumblebee.flipRequest", str(FLIP_REQUEST_MAGIC)),
             ],
         )
         sleep.assert_called_once_with(0.1)
+
+    @patch("bumblebee.flights.flip.stop_and_disarm")
+    def test_acro_abort_stops_without_controlled_landing(
+        self,
+        stop_and_disarm: Mock,
+    ) -> None:
+        commander = Mock()
+        connection = Mock()
+        context = Mock()
+
+        FlipFlight._finish_flight(
+            commander,
+            connection,
+            context,
+            controlled_landing_allowed=False,
+        )
+
+        commander.land.assert_not_called()
+        stop_and_disarm.assert_called_once_with(connection, context)
+
+    @patch("bumblebee.flights.flip.stop_and_disarm")
+    def test_confirmed_recovery_uses_controlled_landing(
+        self,
+        stop_and_disarm: Mock,
+    ) -> None:
+        commander = Mock()
+        connection = Mock()
+        context = Mock()
+        context.safety_limits.max_vertical_speed = 0.15
+
+        FlipFlight._finish_flight(
+            commander,
+            connection,
+            context,
+            controlled_landing_allowed=True,
+        )
+
+        commander.land.assert_called_once_with(velocity=0.15)
+        stop_and_disarm.assert_called_once_with(connection, context)
 
     def test_slow_reported_drift_is_accepted_while_staging(self) -> None:
         self.assertIsNone(

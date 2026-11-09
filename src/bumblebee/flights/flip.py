@@ -71,13 +71,13 @@ MOTOR_PWM_MAX = 65_535
 
 @dataclass(frozen=True)
 class FlipProfile:
-    boost_height_mm: int = 200
-    boost_duration_ms: int = 250
-    brake_start_degrees: int = 270
+    boost_height_mm: int = 300
+    boost_duration_ms: int = 350
+    brake_start_degrees: int = 240
     spin_thrust_percent: int = 40
     coast_thrust_percent: int = 20
-    brake_thrust_percent: int = 45
-    recovery_duration_ms: int = 400
+    brake_thrust_percent: int = 60
+    recovery_duration_ms: int = 500
 
 
 PHASED_PROFILE = FlipProfile()
@@ -257,6 +257,7 @@ class FlipFlight:
         request_arming(connection, True)
         time.sleep(0.5)
         watchdog_started = False
+        controlled_landing_allowed = True
         try:
             with EmergencyStopWatchdog(connection) as watchdog:
                 watchdog_started = True
@@ -276,6 +277,7 @@ class FlipFlight:
                             watchdog,
                             live,
                         )
+                        controlled_landing_allowed = False
                         self._trigger(
                             connection,
                             settings.direction,
@@ -289,17 +291,14 @@ class FlipFlight:
                             live,
                             staging,
                         )
+                        controlled_landing_allowed = True
                 finally:
-                    try:
-                        commander.land(
-                            velocity=context.safety_limits.max_vertical_speed
-                        )
-                    except Exception as exc:  # noqa: BLE001 - generic cflib errors.
-                        context.console.print(
-                            "[bold red]Controlled landing command failed:[/bold red] "
-                            f"{exc}"
-                        )
-                    stop_and_disarm(connection, context)
+                    self._finish_flight(
+                        commander,
+                        connection,
+                        context,
+                        controlled_landing_allowed=controlled_landing_allowed,
+                    )
         finally:
             if not watchdog_started:
                 stop_and_disarm(connection, context)
@@ -308,6 +307,33 @@ class FlipFlight:
                 "The Acro radio-loss watchdog intentionally locks after its "
                 "heartbeat ends."
             )
+
+    @staticmethod
+    def _finish_flight(
+        commander: MotionCommander,
+        connection: Any,
+        context: FlightContext,
+        *,
+        controlled_landing_allowed: bool,
+    ) -> None:
+        if not controlled_landing_allowed:
+            context.console.print(
+                "[bold red]Acro recovery was not confirmed.[/bold red] "
+                "Stopping and disarming without another motor command."
+            )
+            stop_and_disarm(connection, context)
+            return
+
+        try:
+            commander.land(
+                velocity=context.safety_limits.max_vertical_speed
+            )
+        except Exception as exc:  # noqa: BLE001 - generic cflib errors.
+            context.console.print(
+                "[bold red]Controlled landing command failed:[/bold red] "
+                f"{exc}"
+            )
+        stop_and_disarm(connection, context)
 
     def _wait_for_stable_stage(
         self,
@@ -684,7 +710,11 @@ class FlipFlight:
                     staging.altitude + recovery.boost_gain
                 ),
                 brake_start_altitude=brake_start_altitude,
-                recovery_start_altitude=recovery.recovery_start_altitude,
+                recovery_start_altitude=(
+                    recovery.recovery_start_altitude
+                    if final_result in (1, 11)
+                    else recovery_start_altitude
+                ),
                 recovery_start_vertical_speed=(
                     recovery_start_vertical_speed
                 ),
