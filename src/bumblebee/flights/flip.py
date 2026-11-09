@@ -39,11 +39,13 @@ MINIMUM_RECOVERY_VERTICAL_SPEED = -0.50
 FLIP_STATE_NAMES = {
     0: "Staging",
     1: "Boosting",
-    2: "Rotating",
-    3: "Recovering",
-    4: "Verifying recovery",
-    5: "Complete",
-    6: "Aborted",
+    2: "Spinning up",
+    3: "Coasting",
+    4: "Braking rotation",
+    5: "Recovering",
+    6: "Verifying recovery",
+    7: "Complete",
+    8: "Aborted",
 }
 
 FLIP_RESULT_MESSAGES = {
@@ -59,7 +61,26 @@ FLIP_RESULT_MESSAGES = {
     9: "The supervisor denied the time-limited Acro permit.",
     10: "Net rotation was reached, but the Crazyflie was not upright.",
     11: "The rotation completed, but stable flight was not recovered.",
+    12: "The installed firmware has disabled this maneuver.",
+    13: "The requested phase profile was outside its guarded limits.",
+    14: "The rotation could not be slowed near the upright attitude.",
 }
+
+MOTOR_PWM_MAX = 65_535
+
+
+@dataclass(frozen=True)
+class FlipProfile:
+    boost_height_mm: int = 200
+    boost_duration_ms: int = 250
+    brake_start_degrees: int = 270
+    spin_thrust_percent: int = 40
+    coast_thrust_percent: int = 20
+    brake_thrust_percent: int = 45
+    recovery_duration_ms: int = 400
+
+
+PHASED_PROFILE = FlipProfile()
 
 
 @dataclass(frozen=True)
@@ -67,6 +88,7 @@ class FlipSettings:
     height: float
     settle_seconds: float
     direction: str
+    profile: FlipProfile = PHASED_PROFILE
 
 
 @dataclass(frozen=True)
@@ -83,6 +105,12 @@ class RecoverySnapshot:
     recovery_altitude: float
     recovery_vertical_speed: float
     hover_thrust: float
+    minimum_altitude: float
+    minimum_voltage: float
+    boost_gain: float
+    brake_start_rotation: float
+    brake_end_rate: float
+    recovery_start_altitude: float
 
 
 @dataclass
@@ -162,8 +190,8 @@ class FlipFlight:
         parser.add_argument(
             "--flip-height",
             type=_bounded_float(0.80, 1.20),
-            default=1.00,
-            help="flip staging height in metres, 0.80-1.20 (default: 1.00)",
+            default=1.10,
+            help="flip staging height in metres, 0.80-1.20 (default: 1.10)",
         )
         parser.add_argument(
             "--flip-settle",
@@ -183,11 +211,12 @@ class FlipFlight:
             height=args.flip_height,
             settle_seconds=args.flip_settle,
             direction=args.flip_direction,
+            profile=PHASED_PROFILE,
         )
 
     def plan(self, settings: FlipSettings) -> str:
         return (
-            f"stage at {settings.height:.2f} m, then one "
+            f"stage at {settings.height:.2f} m, then one phase-controlled "
             f"{settings.direction} flip"
         )
 
@@ -247,7 +276,11 @@ class FlipFlight:
                             watchdog,
                             live,
                         )
-                        self._trigger(connection, settings.direction)
+                        self._trigger(
+                            connection,
+                            settings.direction,
+                            settings.profile,
+                        )
                         self._monitor_flip(
                             connection,
                             settings,
@@ -432,15 +465,24 @@ class FlipFlight:
         live: Live,
         staging: StagingSnapshot,
     ) -> None:
-        config = LogConfig(name="Bumblebee flip", period_in_ms=50)
-        config.add_variable("pm.vbat", "float")
-        config.add_variable("supervisor.info", "uint16_t")
-        config.add_variable("bumblebee.state", "uint8_t")
-        config.add_variable("bumblebee.result", "uint8_t")
-        config.add_variable("bumblebee.rotation", "float")
-        config.add_variable("bumblebee.peakRate", "float")
-        config.add_variable("bumblebee.endRoll", "float")
-        config.add_variable("bumblebee.endPitch", "float")
+        control_config = LogConfig(name="Bumblebee flip", period_in_ms=50)
+        control_config.add_variable("pm.vbat", "float")
+        control_config.add_variable("supervisor.info", "uint16_t")
+        control_config.add_variable("bumblebee.state", "uint8_t")
+        control_config.add_variable("bumblebee.result", "uint8_t")
+        control_config.add_variable("bumblebee.rotation", "float")
+        control_config.add_variable("bumblebee.peakRate", "float")
+        control_config.add_variable("bumblebee.endRoll", "float")
+        control_config.add_variable("bumblebee.endPitch", "float")
+
+        dynamics_config = LogConfig(
+            name="Bumblebee flip dynamics",
+            period_in_ms=50,
+        )
+        dynamics_config.add_variable("stateEstimate.z", "float")
+        dynamics_config.add_variable("stateEstimate.vz", "float")
+        for motor in range(1, 5):
+            dynamics_config.add_variable(f"motor.m{motor}req", "int32_t")
 
         triggered_at = time.monotonic()
         observed_maneuver = False
@@ -451,13 +493,35 @@ class FlipFlight:
         peak_pitch_rate = 0.0
         rotation_end_roll = 0.0
         rotation_end_pitch = 0.0
+        altitude = staging.altitude
+        vertical_speed = 0.0
+        minimum_altitude = staging.altitude
+        minimum_voltage = staging.voltage
+        maximum_motor_request = 0
+        saturation_samples = 0
+        sample_count = 0
+        boost_end_altitude: float | None = None
+        brake_start_altitude: float | None = None
+        recovery_start_altitude: float | None = None
+        recovery_start_vertical_speed: float | None = None
+        previous_state = 0
 
-        with TimedTelemetryLogger(
-            connection,
-            config,
-            context.safety_limits.telemetry_timeout,
-        ) as logger:
-            for _timestamp, data, _name in logger:
+        with (
+            TimedTelemetryLogger(
+                connection,
+                control_config,
+                context.safety_limits.telemetry_timeout,
+            ) as control_logger,
+            TimedTelemetryLogger(
+                connection,
+                dynamics_config,
+                context.safety_limits.telemetry_timeout,
+            ) as dynamics_logger,
+        ):
+            for _timestamp, data, _name in control_logger:
+                _dynamics_timestamp, dynamics, _dynamics_name = next(
+                    dynamics_logger
+                )
                 watchdog.assert_healthy()
                 now = time.monotonic()
                 voltage = float(data["pm.vbat"])
@@ -467,6 +531,31 @@ class FlipFlight:
                 peak_pitch_rate = float(data["bumblebee.peakRate"])
                 rotation_end_roll = float(data["bumblebee.endRoll"])
                 rotation_end_pitch = float(data["bumblebee.endPitch"])
+                altitude = float(dynamics["stateEstimate.z"])
+                vertical_speed = float(dynamics["stateEstimate.vz"])
+                motor_requests = tuple(
+                    int(dynamics[f"motor.m{motor}req"])
+                    for motor in range(1, 5)
+                )
+                maximum_motor_request = max(
+                    maximum_motor_request,
+                    max(motor_requests),
+                )
+                sample_count += 1
+                if max(motor_requests) > MOTOR_PWM_MAX:
+                    saturation_samples += 1
+                minimum_altitude = min(minimum_altitude, altitude)
+                minimum_voltage = min(minimum_voltage, voltage)
+
+                if state != previous_state:
+                    if state == 2:
+                        boost_end_altitude = altitude
+                    elif state == 4:
+                        brake_start_altitude = altitude
+                    elif state == 5:
+                        recovery_start_altitude = altitude
+                        recovery_start_vertical_speed = vertical_speed
+                    previous_state = state
 
                 message = (
                     "The onboard maneuver is running."
@@ -476,10 +565,14 @@ class FlipFlight:
                         "The onboard maneuver is running.",
                     )
                 )
-                if state not in (0, 5, 6):
+                if state not in (0, 7, 8):
                     observed_maneuver = True
-                if state in (5, 6):
+                if state in (7, 8):
                     final_result = result
+
+                saturation_percent = (
+                    saturation_samples / sample_count * 100.0
+                )
 
                 live.update(
                     build_flip_dashboard(
@@ -487,7 +580,7 @@ class FlipFlight:
                         phase=FLIP_STATE_NAMES.get(state, "Unknown"),
                         direction=settings.direction,
                         target_height=settings.height,
-                        altitude=staging.altitude,
+                        altitude=altitude,
                         voltage=voltage,
                         battery_live=True,
                         minimum_flip_voltage=MINIMUM_FLIP_VOLTAGE,
@@ -495,10 +588,10 @@ class FlipFlight:
                         raw_rotation=None,
                         peak_pitch_rate=peak_pitch_rate,
                         rotation_end_roll=(
-                            rotation_end_roll if state in (5, 6) else None
+                            rotation_end_roll if state in (7, 8) else None
                         ),
                         rotation_end_pitch=(
-                            rotation_end_pitch if state in (5, 6) else None
+                            rotation_end_pitch if state in (7, 8) else None
                         ),
                         recovery_altitude=None,
                         recovery_vertical_speed=None,
@@ -508,6 +601,17 @@ class FlipFlight:
                         horizontal_distance=staging.horizontal_distance,
                         horizontal_speed=staging.horizontal_speed,
                         message=message,
+                        current_vertical_speed=vertical_speed,
+                        minimum_altitude=minimum_altitude,
+                        minimum_voltage=minimum_voltage,
+                        maximum_motor_request=maximum_motor_request,
+                        motor_saturation_percent=saturation_percent,
+                        boost_end_altitude=boost_end_altitude,
+                        brake_start_altitude=brake_start_altitude,
+                        recovery_start_altitude=recovery_start_altitude,
+                        recovery_start_vertical_speed=(
+                            recovery_start_vertical_speed
+                        ),
                     ),
                     refresh=True,
                 )
@@ -537,7 +641,7 @@ class FlipFlight:
         )
         if final_result == 1 and host_recovery_issue is not None:
             final_result = 11
-            state = 6
+            state = 8
         detail = FLIP_RESULT_MESSAGES.get(
             final_result,
             f"Unknown result code {final_result}.",
@@ -550,7 +654,7 @@ class FlipFlight:
                 phase=FLIP_STATE_NAMES.get(state, "Unknown"),
                 direction=settings.direction,
                 target_height=settings.height,
-                altitude=staging.altitude,
+                altitude=recovery.recovery_altitude,
                 voltage=voltage,
                 battery_live=True,
                 minimum_flip_voltage=MINIMUM_FLIP_VOLTAGE,
@@ -567,6 +671,25 @@ class FlipFlight:
                 horizontal_distance=staging.horizontal_distance,
                 horizontal_speed=staging.horizontal_speed,
                 message=detail,
+                current_vertical_speed=recovery.recovery_vertical_speed,
+                minimum_altitude=recovery.minimum_altitude,
+                minimum_voltage=recovery.minimum_voltage,
+                maximum_motor_request=maximum_motor_request,
+                motor_saturation_percent=(
+                    0.0
+                    if sample_count == 0
+                    else saturation_samples / sample_count * 100.0
+                ),
+                boost_end_altitude=(
+                    staging.altitude + recovery.boost_gain
+                ),
+                brake_start_altitude=brake_start_altitude,
+                recovery_start_altitude=recovery.recovery_start_altitude,
+                recovery_start_vertical_speed=(
+                    recovery_start_vertical_speed
+                ),
+                brake_start_rotation=recovery.brake_start_rotation,
+                brake_end_rate=recovery.brake_end_rate,
             ),
             refresh=True,
         )
@@ -580,32 +703,74 @@ class FlipFlight:
         connection: Any,
         context: FlightContext,
     ) -> RecoverySnapshot:
-        config = LogConfig(name="Bumblebee recovery result", period_in_ms=50)
-        config.add_variable("bumblebee.rawRotation", "float")
-        config.add_variable("bumblebee.hoverThrust", "float")
-        config.add_variable("stateEstimate.z", "float")
-        config.add_variable("stateEstimate.vz", "float")
+        recovery_config = LogConfig(
+            name="Bumblebee recovery result",
+            period_in_ms=50,
+        )
+        recovery_config.add_variable("bumblebee.rawRotation", "float")
+        recovery_config.add_variable("bumblebee.hoverThrust", "float")
+        recovery_config.add_variable("stateEstimate.z", "float")
+        recovery_config.add_variable("stateEstimate.vz", "float")
 
         with TimedTelemetryLogger(
             connection,
-            config,
+            recovery_config,
             context.safety_limits.telemetry_timeout,
         ) as logger:
             _timestamp, data, _name = next(logger)
+
+        profile_config = LogConfig(
+            name="Bumblebee phase result",
+            period_in_ms=50,
+        )
+        profile_config.add_variable("bumblebee.minAltitude", "float")
+        profile_config.add_variable("bumblebee.minVoltage", "float")
+        profile_config.add_variable("bumblebee.boostGain", "float")
+        profile_config.add_variable("bumblebee.brakeStart", "float")
+        profile_config.add_variable("bumblebee.brakeEndRate", "float")
+        profile_config.add_variable("bumblebee.recoveryStart", "float")
+
+        with TimedTelemetryLogger(
+            connection,
+            profile_config,
+            context.safety_limits.telemetry_timeout,
+        ) as logger:
+            _timestamp, profile, _name = next(logger)
 
         return RecoverySnapshot(
             raw_rotation=float(data["bumblebee.rawRotation"]),
             recovery_altitude=float(data["stateEstimate.z"]),
             recovery_vertical_speed=float(data["stateEstimate.vz"]),
             hover_thrust=float(data["bumblebee.hoverThrust"]),
+            minimum_altitude=float(profile["bumblebee.minAltitude"]),
+            minimum_voltage=float(profile["bumblebee.minVoltage"]),
+            boost_gain=float(profile["bumblebee.boostGain"]),
+            brake_start_rotation=float(profile["bumblebee.brakeStart"]),
+            brake_end_rate=float(profile["bumblebee.brakeEndRate"]),
+            recovery_start_altitude=float(
+                profile["bumblebee.recoveryStart"]
+            ),
         )
 
     @staticmethod
-    def _trigger(connection: Any, direction: str) -> None:
+    def _trigger(
+        connection: Any,
+        direction: str,
+        profile: FlipProfile,
+    ) -> None:
         direction_value = 1 if direction == "backward" else -1
-        connection.cf.param.set_value(
-            "bumblebee.direction", str(direction_value)
+        values = (
+            ("bumblebee.boostMm", profile.boost_height_mm),
+            ("bumblebee.boostMs", profile.boost_duration_ms),
+            ("bumblebee.brakeDeg", profile.brake_start_degrees),
+            ("bumblebee.spinPct", profile.spin_thrust_percent),
+            ("bumblebee.coastPct", profile.coast_thrust_percent),
+            ("bumblebee.brakePct", profile.brake_thrust_percent),
+            ("bumblebee.recoverMs", profile.recovery_duration_ms),
+            ("bumblebee.direction", direction_value),
         )
+        for parameter, value in values:
+            connection.cf.param.set_value(parameter, str(value))
         time.sleep(0.1)
         connection.cf.param.set_value(
             "bumblebee.flipRequest", str(FLIP_REQUEST_MAGIC)

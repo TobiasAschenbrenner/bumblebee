@@ -97,7 +97,8 @@ During flight:
 Firmware v6 temporarily disabled the flip and added an upright measurement
 routine. Its first test produced only 0.01 m of altitude gain and 0.12 m/s of
 upward speed, followed by a sideways loss of control. The routine is therefore
-locked: the Mac requires a future v7 or newer firmware before it can be armed.
+locked. Firmware v7 also rejects this direct-thrust request, and the Mac
+requires a future v8 or newer implementation before it can be armed.
 
 Do not restore an older Mac revision to repeat the v6 lift test. The next step
 is a normal-controller motor and battery health measurement, not another direct
@@ -130,8 +131,8 @@ overhead.
 ./fly --flight flip
 ```
 
-The command stages at 1 m, learns the current airframe's hover thrust, and asks
-for exact `ACRO` and `FLIP` confirmations before triggering anything. The
+The command stages at 1.10 m, learns the current airframe's hover thrust, and
+asks for exact `ACRO` and `FLIP` confirmations before triggering anything. The
 maneuver triggers only after a one-second low-drift window and aborts if the
 staging hover moves more than 0.5 m from takeoff. It then runs on the Crazyflie
 so radio timing cannot split the flip into half-finished phases. Only the tumble
@@ -141,9 +142,14 @@ disappears. Power-cycle the Crazyflie after every Acro run to reset that
 watchdog.
 
 Version 5 completed a full rotation on the AI-deck and Flow-deck airframe but
-lost too much height to recover safely. Firmware v6 therefore rejects the flip
-trigger onboard, and the Mac requires a future v7 or newer profile before it
-will arm the maneuver. Do not restore v5 for another attempt.
+lost too much height to recover safely. Version 6's direct lift measurement
+then destabilized sideways. Firmware v7 replaces both methods with a
+phase-controlled profile: stock position control creates the initial lift,
+then separate spin-up, coast, and angular-braking phases slow the rotation
+before stock position control takes over recovery. The Mac records live
+altitude, vertical speed, phase transitions, motor saturation, and battery sag.
+Its guarded phase values are sent before each run, allowing later tuning without
+another firmware flash. Do not restore v5 or the v6 lift test.
 
 Safe flights and the lift test land at 3.50 V. Any future flip profile must also
 pass an under-load battery check before its rotation can begin.

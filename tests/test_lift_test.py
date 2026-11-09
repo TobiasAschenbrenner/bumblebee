@@ -9,12 +9,12 @@ from bumblebee.flights.lift_test import (
 
 
 class LiftTestFlightTests(TestCase):
-    def test_lift_test_keeps_safe_mode_and_rejects_v6(self) -> None:
+    def test_lift_test_keeps_safe_mode_and_rejects_v7(self) -> None:
         flight = LiftTestFlight()
 
         self.assertFalse(flight.requires_acro)
         self.assertEqual("LIFT", flight.confirmation_word)
-        self.assertEqual(7, flight.requirements.minimum_acro_firmware_version)
+        self.assertEqual(8, flight.requirements.minimum_acro_firmware_version)
 
     def test_settings_are_isolated_from_other_flights(self) -> None:
         settings = LiftTestFlight().settings_from(

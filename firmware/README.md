@@ -30,15 +30,15 @@ No private Wi-Fi credentials are included.
 
 ## Acro firmware safety model
 
-The experiment app is idle until it receives a one-shot Bumblebee request. The
-v6 lift test checks that the Crazyflie is flying, level, between 0.45 and 0.75
-m, above 3.50 V, and has learned a plausible hover-thrust value. It applies a
-200 ms level lift pulse at 200 Hz, stops the pulse at 1.10 m, releases control
-back to the normal position controller, and observes recovery onboard.
+The experiment app is idle until it receives a one-shot Bumblebee request.
+Firmware v7 rejects the unsafe v6 direct-thrust lift request. Its flip profile
+uses the stock position controller for the initial lift, followed by separate
+rate-controlled spin-up, coast, and angular-braking phases. Stock position
+control resumes for recovery only after the Crazyflie is upright and its pitch
+rate has slowed.
 
-The v6 lift test never requests the Acro permit, so tumble protection remains
-active throughout. Flip profiles use a permit that is available only while
-flying, is capped at 1.5 seconds, and expires without any Mac-side cleanup.
+Flip profiles use a permit that is available only while flying, is capped at
+1.5 seconds, and expires without any Mac-side cleanup.
 Emergency stop, the emergency watchdog, the commander watchdog, arming, crash,
 and deck checks stay active. The normal `cf2-2025.02-aideck-ap.bin` remains
 available as the non-Acro fallback.
@@ -65,8 +65,12 @@ descending at 3.14 m/s and crashed into the padded surface. Version 6 disables
 the flip trigger and adds an upright lift/recovery measurement. That test gained
 only 0.01 m and 0.12 m/s from its 200 ms pulse, sagged to 3.605 V, then lost
 control sideways. The Mac now rejects both experimental routines on v6. They
-require a future v7 or newer profile and must not be repeated with older host
-code.
+must not be repeated with older host code. Version 7 enables the new phased
+flip only. Its bounded boost, thrust allocation, braking point, and recovery
+duration parameters are volatile and are written by the Mac before every run,
+so later profiles can be tuned without reflashing the Crazyflie. It also records
+the minimum altitude and voltage, lift gain, braking angle and end rate, and
+recovery handoff altitude for the next iteration.
 
 ## Restore official firmware
 

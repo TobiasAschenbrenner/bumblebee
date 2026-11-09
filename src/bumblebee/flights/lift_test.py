@@ -76,7 +76,7 @@ class LiftTestFlight:
     requirements_label = "Flow V2 · firmware v7+"
     requirements = FlightRequirements(
         flow_deck=True,
-        minimum_acro_firmware_version=7,
+        minimum_acro_firmware_version=8,
     )
     requires_acro = False
     confirmation_word = "LIFT"

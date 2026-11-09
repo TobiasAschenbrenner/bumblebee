@@ -9,6 +9,7 @@ from bumblebee.flights.flip import (
     MINIMUM_RECOVERY_VERTICAL_SPEED,
     MINIMUM_FLIP_VOLTAGE,
     MAXIMUM_STAGING_DISTANCE,
+    PHASED_PROFILE,
     FlipFlight,
     SustainedLowVoltageGuard,
     recovery_violation,
@@ -42,10 +43,17 @@ class FlipFlightTests(TestCase):
     def test_trigger_sets_direction_before_magic_request(self, sleep: Mock) -> None:
         connection = Mock()
 
-        FlipFlight._trigger(connection, "backward")
+        FlipFlight._trigger(connection, "backward", PHASED_PROFILE)
 
         connection.cf.param.set_value.assert_has_calls(
             [
+                call("bumblebee.boostMm", "200"),
+                call("bumblebee.boostMs", "250"),
+                call("bumblebee.brakeDeg", "270"),
+                call("bumblebee.spinPct", "40"),
+                call("bumblebee.coastPct", "20"),
+                call("bumblebee.brakePct", "45"),
+                call("bumblebee.recoverMs", "400"),
                 call("bumblebee.direction", "1"),
                 call("bumblebee.flipRequest", str(FLIP_REQUEST_MAGIC)),
             ],
