@@ -30,7 +30,10 @@ def _supervisor_result(snapshot: PreflightSnapshot) -> Text:
 
     states = ", ".join(describe_supervisor(info)) or "no flags set"
     try:
-        assert_supervisor_safe(info)
+        assert_supervisor_safe(
+            info,
+            allow_disarmed=(snapshot.acro_firmware_version or 0) >= 9,
+        )
     except SafetyError:
         return result_text(False, "", states)
     return result_text(True, states, "")

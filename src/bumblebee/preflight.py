@@ -92,7 +92,10 @@ def preflight_issues(
         )
     else:
         try:
-            assert_supervisor_safe(telemetry.supervisor_info)
+            assert_supervisor_safe(
+                telemetry.supervisor_info,
+                allow_disarmed=(installed_acro_version or 0) >= 9,
+            )
         except SafetyError as exc:
             issues.append(str(exc))
 

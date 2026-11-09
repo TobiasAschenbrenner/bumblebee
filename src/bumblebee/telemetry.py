@@ -169,11 +169,16 @@ def describe_supervisor(info: int) -> list[str]:
     return [label for bit, label in labels if info & (1 << bit)]
 
 
-def assert_supervisor_safe(info: int) -> None:
+def assert_supervisor_safe(
+    info: int,
+    *,
+    allow_disarmed: bool = False,
+) -> None:
     if any(info & (1 << bit) for bit in (5, 6, 7, 11)):
         states = ", ".join(describe_supervisor(info))
         raise SafetyError(f"The supervisor reports an unsafe state: {states}.")
 
-    if not info & (1 << 3):
+    can_be_armed = bool(info & (1 << 0))
+    if not info & (1 << 3) and not (allow_disarmed and can_be_armed):
         states = ", ".join(describe_supervisor(info)) or "no ready flags"
         raise SafetyError(f"The Crazyflie is not ready to fly ({states}).")

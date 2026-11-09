@@ -110,6 +110,29 @@ class PreflightTests(TestCase):
 
         self.assertEqual([], issues)
 
+    def test_v9_accepts_safe_explicitly_disarmed_supervisor(self) -> None:
+        issues = preflight_issues(
+            snapshot(
+                supervisor_info=1 << 0,
+                acro_firmware_version=9,
+                acro_immediate_stop_ready=True,
+            ),
+            FlightRequirements(
+                flow_deck=True,
+                minimum_acro_firmware_version=9,
+            ),
+        )
+
+        self.assertEqual([], issues)
+
+    def test_legacy_firmware_does_not_accept_disarmed_supervisor(self) -> None:
+        issues = preflight_issues(
+            snapshot(supervisor_info=1 << 0),
+            FlightRequirements(flow_deck=True),
+        )
+
+        self.assertTrue(any("not ready to fly" in issue for issue in issues))
+
     def test_unsafe_acro_firmware_version_is_rejected(self) -> None:
         issues = preflight_issues(
             snapshot(acro_firmware_version=4),
