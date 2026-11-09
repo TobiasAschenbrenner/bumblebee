@@ -43,6 +43,21 @@ class FlipFlightTests(TestCase):
         self.assertEqual("backward", settings.direction)
         self.assertFalse(settings.high_recovery_test)
 
+    def test_early_braking_profile_can_stage_at_one_and_a_half_metres(self) -> None:
+        settings = FlipFlight().settings_from(
+            Namespace(
+                flip_height=1.5,
+                flip_settle=3.0,
+                flip_direction="backward",
+                high_recovery_test=False,
+            )
+        )
+
+        self.assertEqual(1.5, settings.height)
+        self.assertEqual(PHASED_PROFILE, settings.profile)
+        self.assertEqual(100, settings.profile.brake_start_degrees)
+        self.assertEqual(1_200, settings.profile.counter_brake_rate)
+
     def test_high_recovery_test_changes_only_height_and_test_profile(self) -> None:
         settings = FlipFlight().settings_from(
             Namespace(

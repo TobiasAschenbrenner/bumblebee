@@ -210,9 +210,9 @@ class FlipFlight:
     def add_arguments(self, parser: ArgumentParser) -> None:
         parser.add_argument(
             "--flip-height",
-            type=_bounded_float(0.80, 1.20),
+            type=_bounded_float(0.80, 1.50),
             default=1.15,
-            help="flip staging height in metres, 0.80-1.20 (default: 1.15)",
+            help="flip staging height in metres, 0.80-1.50 (default: 1.15)",
         )
         parser.add_argument(
             "--flip-settle",
