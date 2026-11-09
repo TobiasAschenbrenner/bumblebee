@@ -92,20 +92,16 @@ During flight:
 - Press **Return** to land early.
 - Press **Control-C** to request landing and disarm cleanup.
 
-### Lift and recovery measurement
+### Lift and recovery measurement — disabled
 
-Firmware v6 temporarily disables the flip and adds an upright measurement
-routine instead. It stages at 0.60 m, applies one 200 ms level lift pulse, then
-records the altitude gain, vertical speed, tilt, and battery sag while the
-normal position controller recovers:
+Firmware v6 temporarily disabled the flip and added an upright measurement
+routine. Its first test produced only 0.01 m of altitude gain and 0.12 m/s of
+upward speed, followed by a sideways loss of control. The routine is therefore
+locked: the Mac requires a future v7 or newer firmware before it can be armed.
 
-```bash
-./fly --flight lift-test
-```
-
-The test stays in Safe mode, keeps the shared 1.5 m boundary, has an additional
-1.10 m onboard pulse cutoff, and asks for an exact `LIFT` confirmation. It still
-uses the radio-loss watchdog, so power-cycle the Crazyflie afterwards.
+Do not restore an older Mac revision to repeat the v6 lift test. The next step
+is a normal-controller motor and battery health measurement, not another direct
+thrust pulse.
 
 ### Experimental flip
 

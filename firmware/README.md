@@ -62,10 +62,11 @@ in version 4, and validates the final altitude and vertical speed through the
 Mac's standard flight telemetry. Version 5 completed a full rotation on the
 AI-deck and Flow-deck test airframe, but reached recovery at 0.33 m while still
 descending at 3.14 m/s and crashed into the padded surface. Version 6 disables
-the flip trigger both onboard and on the Mac. It adds the upright lift/recovery
-measurement used to determine whether the airframe has enough thrust reserve
-for a redesigned profile. The lift test requires v6 or newer; the flip routine
-requires a future v7 or newer profile.
+the flip trigger and adds an upright lift/recovery measurement. That test gained
+only 0.01 m and 0.12 m/s from its 200 ms pulse, sagged to 3.605 V, then lost
+control sideways. The Mac now rejects both experimental routines on v6. They
+require a future v7 or newer profile and must not be repeated with older host
+code.
 
 ## Restore official firmware
 
