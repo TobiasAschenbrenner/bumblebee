@@ -104,30 +104,36 @@ def main(
             )
         )
 
-        if mode is FlightMode.ACRO:
-            acro_confirmation = Prompt.ask(
-                "Type [bold red]ACRO[/bold red] exactly to disable the normal "
-                "flight boundaries for this run",
-                default="",
-                show_default=False,
-            )
-            if acro_confirmation != "ACRO":
-                CONSOLE.print(
-                    "[yellow]Cancelled.[/yellow] No motor command was sent."
-                )
-                return 0
-
-        confirmation_word = flight.confirmation_word
-        confirmation = Prompt.ask(
-            f"Type [bold]{confirmation_word}[/bold] exactly to arm, "
-            "or press Return to cancel",
+    if mode is FlightMode.ACRO:
+        acro_confirmation = Prompt.ask(
+            "Type [bold red]ACRO[/bold red] exactly to disable the normal "
+            "flight boundaries for this run",
             default="",
             show_default=False,
         )
-        if confirmation != confirmation_word:
-            CONSOLE.print("[yellow]Cancelled.[/yellow] No motor command was sent.")
+        if acro_confirmation != "ACRO":
+            CONSOLE.print(
+                "[yellow]Cancelled.[/yellow] No motor command was sent."
+            )
             return 0
 
+    confirmation_word = flight.confirmation_word
+    confirmation = Prompt.ask(
+        f"Type [bold]{confirmation_word}[/bold] exactly to arm, "
+        "or press Return to cancel",
+        default="",
+        show_default=False,
+    )
+    if confirmation != confirmation_word:
+        CONSOLE.print("[yellow]Cancelled.[/yellow] No motor command was sent.")
+        return 0
+
+    with connected_crazyflie(uri) as connection:
+        with CONSOLE.status(
+            f"[cyan]Reconnecting and rechecking {uri}…[/cyan]"
+        ):
+            snapshot = collect_preflight_snapshot(connection)
+        require_safe_preflight(snapshot, flight.requirements)
         flight.run(
             connection,
             settings,
