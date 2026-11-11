@@ -140,6 +140,11 @@ of raw travel when the airframe is upright and slow. It then keeps the stock
 attitude and position PID active while enforcing a 200 ms collective floor at
 120% of learned hover thrust. The 4 g impact cutoff remains active throughout
 that recovery pulse.
+Version 18 visually finished upright but never activated recovery because the
+high-rate attitude estimate missed the strict 25-degree gate. Version 19 keeps
+that strict signed-angle path and adds a guarded raw-travel path requiring at
+least 320 degrees, at most 180 deg/s pitch rate, and attitude within 60 degrees
+of upright before the same stabilized recovery boost can start.
 
 ## Restore official firmware
 

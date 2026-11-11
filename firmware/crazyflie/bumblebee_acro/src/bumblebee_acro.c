@@ -31,7 +31,7 @@
 #define DEBUG_MODULE "BUMBLEBEE"
 #include "debug.h"
 
-#define APP_VERSION 18
+#define APP_VERSION 19
 #define FLIP_REQUEST_MAGIC 0xB33F
 #define LIFT_TEST_REQUEST_MAGIC 0xB11F
 #define LOOP_PERIOD_MS 5
@@ -58,9 +58,10 @@
 #define SPINUP_READY_ROTATION_DEG 10.0f
 #define BRAKE_READY_RATE_DEG_S 180.0f
 #define TARGET_ROTATION_DEG 335.0f
-#define MIN_RECOVERY_RAW_ROTATION_DEG 300.0f
+#define MIN_RECOVERY_RAW_ROTATION_DEG 320.0f
 #define MAX_ROTATION_DEG 410.0f
 #define UPRIGHT_TOLERANCE_DEG 25.0f
+#define RAW_RECOVERY_UPRIGHT_TOLERANCE_DEG 60.0f
 #define RECOVERY_LEVEL_TOLERANCE_DEG 20.0f
 #define MIN_RECOVERY_ALTITUDE_M 0.55f
 
@@ -536,12 +537,14 @@ static RotationResult rotateWithBraking(const float hoverThrust) {
     );
     brakeEndRate = directedRate;
 
-    const bool sufficientRotation =
-      rotationDeg >= TARGET_ROTATION_DEG ||
-      rawRotationDeg >= MIN_RECOVERY_RAW_ROTATION_DEG;
-    if (sufficientRotation &&
-        fabsf(directedRate) <= BRAKE_READY_RATE_DEG_S &&
-        isUprightWithin(UPRIGHT_TOLERANCE_DEG)) {
+    const bool signedRotationReady =
+      rotationDeg >= TARGET_ROTATION_DEG &&
+      isUprightWithin(UPRIGHT_TOLERANCE_DEG);
+    const bool rawRotationReady =
+      rawRotationDeg >= MIN_RECOVERY_RAW_ROTATION_DEG &&
+      isUprightWithin(RAW_RECOVERY_UPRIGHT_TOLERANCE_DEG);
+    if ((signedRotationReady || rawRotationReady) &&
+        fabsf(directedRate) <= BRAKE_READY_RATE_DEG_S) {
       rotationEndRoll = logGetFloat(rollId);
       rotationEndPitch = logGetFloat(pitchId);
       return rotationCompleted;

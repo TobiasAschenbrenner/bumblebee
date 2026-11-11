@@ -201,7 +201,7 @@ class FlipFlight:
     requirements_label = "Flow V2 · Acro firmware"
     requirements = FlightRequirements(
         flow_deck=True,
-        minimum_acro_firmware_version=18,
+        minimum_acro_firmware_version=19,
     )
     requires_acro = True
     confirmation_word = "FLIP"
