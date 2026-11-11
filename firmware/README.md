@@ -133,6 +133,13 @@ the impact then reversed the logged angular direction. Version 17 restores the
 build the previous peak rate. It also latches direct control off after a 4 g
 impact once at least 60 degrees of rotation has begun, independent of inverted
 altitude estimates.
+Version 17 visually completed a clean flip, reduced pitch rate to -77 deg/s,
+and stopped immediately on padded-floor contact. Its signed angle was distorted
+by the final braking reversal, so version 18 also accepts at least 300 degrees
+of raw travel when the airframe is upright and slow. It then keeps the stock
+attitude and position PID active while enforcing a 200 ms collective floor at
+120% of learned hover thrust. The 4 g impact cutoff remains active throughout
+that recovery pulse.
 
 ## Restore official firmware
 

@@ -46,6 +46,7 @@ def build_flip_dashboard(
     brake_start_rotation: float | None = None,
     brake_end_rate: float | None = None,
     maximum_tilt: float | None = None,
+    recovery_boost_used: bool | None = None,
 ) -> Panel:
     details = Table.grid(expand=True, padding=(0, 1))
     details.add_column(width=18, style="dim")
@@ -114,6 +115,14 @@ def build_flip_dashboard(
         if brake_end_rate is not None:
             brake_values.append(f"ended at {brake_end_rate:.0f}°/s")
         details.add_row("Angular braking", " · ".join(brake_values))
+    if recovery_boost_used is not None:
+        details.add_row(
+            "Recovery boost",
+            Text(
+                "USED" if recovery_boost_used else "Waiting",
+                style="bold green" if recovery_boost_used else "cyan",
+            ),
+        )
     details.add_row(
         "Staging drift",
         "Waiting…"

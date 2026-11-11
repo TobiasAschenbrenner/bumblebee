@@ -201,7 +201,7 @@ class FlipFlight:
     requirements_label = "Flow V2 · Acro firmware"
     requirements = FlightRequirements(
         flow_deck=True,
-        minimum_acro_firmware_version=17,
+        minimum_acro_firmware_version=18,
     )
     requires_acro = True
     confirmation_word = "FLIP"
@@ -523,6 +523,7 @@ class FlipFlight:
         control_config.add_variable("bumblebee.peakRate", "float")
         control_config.add_variable("stateEstimate.roll", "float")
         control_config.add_variable("stateEstimate.pitch", "float")
+        control_config.add_variable("bumblebee.recoveryBoost", "uint8_t")
 
         dynamics_config = LogConfig(
             name="Bumblebee flip dynamics",
@@ -553,6 +554,7 @@ class FlipFlight:
         recovery_start_altitude: float | None = None
         recovery_start_vertical_speed: float | None = None
         previous_state = 0
+        recovery_boost_used = False
 
         with (
             TimedTelemetryLogger(
@@ -579,6 +581,7 @@ class FlipFlight:
                 peak_pitch_rate = float(data["bumblebee.peakRate"])
                 live_roll = float(data["stateEstimate.roll"])
                 live_pitch = float(data["stateEstimate.pitch"])
+                recovery_boost_used = bool(data["bumblebee.recoveryBoost"])
                 maximum_tilt = max(
                     maximum_tilt,
                     abs(live_roll),
@@ -660,6 +663,7 @@ class FlipFlight:
                         maximum_motor_request=maximum_motor_request,
                         motor_saturation_percent=saturation_percent,
                         maximum_tilt=maximum_tilt,
+                        recovery_boost_used=recovery_boost_used,
                         boost_end_altitude=boost_end_altitude,
                         brake_start_altitude=brake_start_altitude,
                         recovery_start_altitude=recovery_start_altitude,
@@ -777,6 +781,7 @@ class FlipFlight:
                 brake_end_rate=(
                     None if pre_rotation_abort else recovery.brake_end_rate
                 ),
+                recovery_boost_used=recovery_boost_used,
             ),
             refresh=True,
         )
