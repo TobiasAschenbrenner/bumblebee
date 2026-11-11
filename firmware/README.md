@@ -105,6 +105,11 @@ Version 12 widens only the permitted pre-rotation staging altitude to
 0.75–1.65 m. The first v11 test reached 1.55 m for a 1.50 m target and was
 correctly rejected by the previous strict boundary; it then completed a stable,
 controlled landing without beginning the rotation.
+Version 13 applies the 12 cm direct-control cutoff only while the estimated
+attitude is within 45 degrees of upright. The first v12 rotation stopped near
+inversion, where Flow/Kalman altitude is not a trustworthy ground-proximity
+signal. Version 13 also distinguishes an upright altitude cutoff and an expired
+Acro permit from a supervisor stop in its onboard result telemetry.
 
 ## Restore official firmware
 

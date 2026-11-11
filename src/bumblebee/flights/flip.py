@@ -64,6 +64,8 @@ FLIP_RESULT_MESSAGES = {
     12: "The installed firmware has disabled this maneuver.",
     13: "The requested phase profile was outside its guarded limits.",
     14: "The rotation could not be slowed near the upright attitude.",
+    15: "The upright low-altitude motor cutoff stopped direct control.",
+    16: "The time-limited Acro permit expired during direct control.",
 }
 
 MOTOR_PWM_MAX = 65_535
@@ -198,7 +200,7 @@ class FlipFlight:
     requirements_label = "Flow V2 · Acro firmware"
     requirements = FlightRequirements(
         flow_deck=True,
-        minimum_acro_firmware_version=12,
+        minimum_acro_firmware_version=13,
     )
     requires_acro = True
     confirmation_word = "FLIP"
