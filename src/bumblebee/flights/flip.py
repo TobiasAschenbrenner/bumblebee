@@ -54,7 +54,7 @@ FLIP_RESULT_MESSAGES = {
     2: "The firmware did not consider the Crazyflie airborne.",
     3: "The under-load battery voltage was too low to safely begin the flip.",
     4: "The Crazyflie was not level enough to begin.",
-    5: "The staging altitude was outside 0.75–1.55 m.",
+    5: "The staging altitude was outside 0.75–1.65 m.",
     6: "The firmware could not learn a stable hover-thrust value.",
     7: "The requested rotation did not complete before its timeout.",
     8: "The supervisor stopped the maneuver.",
@@ -198,7 +198,7 @@ class FlipFlight:
     requirements_label = "Flow V2 · Acro firmware"
     requirements = FlightRequirements(
         flow_deck=True,
-        minimum_acro_firmware_version=11,
+        minimum_acro_firmware_version=12,
     )
     requires_acro = True
     confirmation_word = "FLIP"

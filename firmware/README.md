@@ -101,6 +101,10 @@ low collective thrust while coasting, and hands control back to the PID only
 after measured rate and attitude are both suitable for recovery. A 12 cm
 airborne cutoff is enforced inside the stabilizer loop and latches the direct
 controller off until the next power cycle.
+Version 12 widens only the permitted pre-rotation staging altitude to
+0.75–1.65 m. The first v11 test reached 1.55 m for a 1.50 m target and was
+correctly rejected by the previous strict boundary; it then completed a stable,
+controlled landing without beginning the rotation.
 
 ## Restore official firmware
 
