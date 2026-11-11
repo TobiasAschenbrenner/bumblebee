@@ -91,6 +91,16 @@ Version 10 adds an explicit two-metre recovery-height experiment. It keeps the
 normal Safe-mode ceiling at 1.5 m and retains the version 9 motor cutoff. The
 high test uses the last flown v8 rotation profile, changing only the staging
 height so the result can show whether additional recovery room is sufficient.
+That test and a later 1.5 m run showed that extra height and earlier PID braking
+were not enough: the controller remained in its 500 ms braking window until
+impact and never reached the recovery phase.
+Version 11 replaces the stock rate-PID rotation window with Bumblebee's
+out-of-tree force/torque controller. Normal flight still delegates to the stock
+PID. The flip uses bounded direct pitch torque for spin-up and braking, retains
+low collective thrust while coasting, and hands control back to the PID only
+after measured rate and attitude are both suitable for recovery. A 12 cm
+airborne cutoff is enforced inside the stabilizer loop and latches the direct
+controller off until the next power cycle.
 
 ## Restore official firmware
 

@@ -54,7 +54,7 @@ FLIP_RESULT_MESSAGES = {
     2: "The firmware did not consider the Crazyflie airborne.",
     3: "The under-load battery voltage was too low to safely begin the flip.",
     4: "The Crazyflie was not level enough to begin.",
-    5: "The staging altitude was outside 0.75–1.25 m.",
+    5: "The staging altitude was outside 0.75–1.55 m.",
     6: "The firmware could not learn a stable hover-thrust value.",
     7: "The requested rotation did not complete before its timeout.",
     8: "The supervisor stopped the maneuver.",
@@ -86,19 +86,16 @@ def is_pre_rotation_abort(*, result: int, raw_rotation: float) -> bool:
 class FlipProfile:
     boost_height_mm: int = 100
     boost_duration_ms: int = 150
-    brake_start_degrees: int = 100
-    counter_brake_rate: int = 1_200
+    brake_start_degrees: int = 290
     spin_thrust_percent: int = 40
     coast_thrust_percent: int = 20
-    brake_thrust_percent: int = 60
+    brake_thrust_percent: int = 70
+    spin_torque_percent: int = 85
+    brake_torque_percent: int = 85
     recovery_duration_ms: int = 500
 
 
 PHASED_PROFILE = FlipProfile()
-HEIGHT_RECOVERY_TEST_PROFILE = FlipProfile(
-    brake_start_degrees=210,
-    counter_brake_rate=1_000,
-)
 
 
 @dataclass(frozen=True)
@@ -107,7 +104,6 @@ class FlipSettings:
     settle_seconds: float
     direction: str
     profile: FlipProfile = PHASED_PROFILE
-    high_recovery_test: bool = False
 
 
 @dataclass(frozen=True)
@@ -202,7 +198,7 @@ class FlipFlight:
     requirements_label = "Flow V2 · Acro firmware"
     requirements = FlightRequirements(
         flow_deck=True,
-        minimum_acro_firmware_version=10,
+        minimum_acro_firmware_version=11,
     )
     requires_acro = True
     confirmation_word = "FLIP"
@@ -211,8 +207,8 @@ class FlipFlight:
         parser.add_argument(
             "--flip-height",
             type=_bounded_float(0.80, 1.50),
-            default=1.15,
-            help="flip staging height in metres, 0.80-1.50 (default: 1.15)",
+            default=1.50,
+            help="flip staging height in metres, 0.80-1.50 (default: 1.50)",
         )
         parser.add_argument(
             "--flip-settle",
@@ -226,24 +222,7 @@ class FlipFlight:
             default="backward",
             help="rotation direction (default: backward)",
         )
-        parser.add_argument(
-            "--high-recovery-test",
-            action="store_true",
-            help=(
-                "stage at 2.00 m using the last tested rotation profile so "
-                "only the available recovery height changes"
-            ),
-        )
-
     def settings_from(self, args: Namespace) -> FlipSettings:
-        if args.high_recovery_test:
-            return FlipSettings(
-                height=2.0,
-                settle_seconds=args.flip_settle,
-                direction=args.flip_direction,
-                profile=HEIGHT_RECOVERY_TEST_PROFILE,
-                high_recovery_test=True,
-            )
         return FlipSettings(
             height=args.flip_height,
             settle_seconds=args.flip_settle,
@@ -252,13 +231,8 @@ class FlipFlight:
         )
 
     def plan(self, settings: FlipSettings) -> str:
-        if settings.high_recovery_test:
-            return (
-                f"stage at {settings.height:.2f} m, then one "
-                f"{settings.direction} flip using the height-only test profile"
-            )
         return (
-            f"stage at {settings.height:.2f} m, then one phase-controlled "
+            f"stage at {settings.height:.2f} m, then one direct-torque "
             f"{settings.direction} flip"
         )
 
@@ -879,10 +853,11 @@ class FlipFlight:
             ("bumblebee.boostMm", profile.boost_height_mm),
             ("bumblebee.boostMs", profile.boost_duration_ms),
             ("bumblebee.brakeDeg", profile.brake_start_degrees),
-            ("bumblebee.brakeRate", profile.counter_brake_rate),
             ("bumblebee.spinPct", profile.spin_thrust_percent),
             ("bumblebee.coastPct", profile.coast_thrust_percent),
             ("bumblebee.brakePct", profile.brake_thrust_percent),
+            ("bumblebee.spinTorque", profile.spin_torque_percent),
+            ("bumblebee.brakeTorque", profile.brake_torque_percent),
             ("bumblebee.recoverMs", profile.recovery_duration_ms),
             ("bumblebee.direction", direction_value),
         )

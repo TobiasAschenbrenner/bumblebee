@@ -4,7 +4,6 @@ from unittest.mock import Mock, call, patch
 
 from bumblebee.flights.flip import (
     FLIP_REQUEST_MAGIC,
-    HEIGHT_RECOVERY_TEST_PROFILE,
     LOW_VOLTAGE_CONFIRM_SECONDS,
     MINIMUM_RECOVERY_ALTITUDE,
     MINIMUM_RECOVERY_VERTICAL_SPEED,
@@ -25,7 +24,7 @@ class FlipFlightTests(TestCase):
         flight = FlipFlight()
 
         self.assertTrue(flight.requires_acro)
-        self.assertEqual(10, flight.requirements.minimum_acro_firmware_version)
+        self.assertEqual(11, flight.requirements.minimum_acro_firmware_version)
         self.assertEqual("FLIP", flight.confirmation_word)
         self.assertEqual(FlightMode.ACRO.value, "acro")
 
@@ -35,44 +34,25 @@ class FlipFlightTests(TestCase):
                 flip_height=1.0,
                 flip_settle=3.0,
                 flip_direction="backward",
-                high_recovery_test=False,
             )
         )
 
         self.assertEqual(1.0, settings.height)
         self.assertEqual("backward", settings.direction)
-        self.assertFalse(settings.high_recovery_test)
-
-    def test_early_braking_profile_can_stage_at_one_and_a_half_metres(self) -> None:
+    def test_direct_torque_profile_stages_at_one_and_a_half_metres(self) -> None:
         settings = FlipFlight().settings_from(
             Namespace(
                 flip_height=1.5,
                 flip_settle=3.0,
                 flip_direction="backward",
-                high_recovery_test=False,
             )
         )
 
         self.assertEqual(1.5, settings.height)
         self.assertEqual(PHASED_PROFILE, settings.profile)
-        self.assertEqual(100, settings.profile.brake_start_degrees)
-        self.assertEqual(1_200, settings.profile.counter_brake_rate)
-
-    def test_high_recovery_test_changes_only_height_and_test_profile(self) -> None:
-        settings = FlipFlight().settings_from(
-            Namespace(
-                flip_height=1.15,
-                flip_settle=3.0,
-                flip_direction="backward",
-                high_recovery_test=True,
-            )
-        )
-
-        self.assertEqual(2.0, settings.height)
-        self.assertEqual(HEIGHT_RECOVERY_TEST_PROFILE, settings.profile)
-        self.assertTrue(settings.high_recovery_test)
-        self.assertEqual(210, settings.profile.brake_start_degrees)
-        self.assertEqual(1_000, settings.profile.counter_brake_rate)
+        self.assertEqual(290, settings.profile.brake_start_degrees)
+        self.assertEqual(85, settings.profile.spin_torque_percent)
+        self.assertEqual(85, settings.profile.brake_torque_percent)
 
     @patch("bumblebee.flights.flip.time.sleep")
     def test_trigger_sets_direction_before_magic_request(self, sleep: Mock) -> None:
@@ -84,11 +64,12 @@ class FlipFlightTests(TestCase):
             [
                 call("bumblebee.boostMm", "100"),
                 call("bumblebee.boostMs", "150"),
-                call("bumblebee.brakeDeg", "100"),
-                call("bumblebee.brakeRate", "1200"),
+                call("bumblebee.brakeDeg", "290"),
                 call("bumblebee.spinPct", "40"),
                 call("bumblebee.coastPct", "20"),
-                call("bumblebee.brakePct", "60"),
+                call("bumblebee.brakePct", "70"),
+                call("bumblebee.spinTorque", "85"),
+                call("bumblebee.brakeTorque", "85"),
                 call("bumblebee.recoverMs", "500"),
                 call("bumblebee.direction", "1"),
                 call("bumblebee.flipRequest", str(FLIP_REQUEST_MAGIC)),

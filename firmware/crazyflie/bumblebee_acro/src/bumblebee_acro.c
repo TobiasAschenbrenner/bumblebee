@@ -14,10 +14,15 @@
 #include <string.h>
 
 #include "app.h"
+#include "attitude_controller.h"
 #include "commander.h"
+#include "controller.h"
+#include "controller_pid.h"
 #include "log.h"
 #include "motors.h"
 #include "param.h"
+#include "platform_defaults.h"
+#include "position_controller.h"
 #include "supervisor.h"
 
 #include "FreeRTOS.h"
@@ -26,29 +31,26 @@
 #define DEBUG_MODULE "BUMBLEBEE"
 #include "debug.h"
 
-#define APP_VERSION 10
+#define APP_VERSION 11
 #define FLIP_REQUEST_MAGIC 0xB33F
 #define LIFT_TEST_REQUEST_MAGIC 0xB11F
 #define LOOP_PERIOD_MS 5
 #define ACRO_PERMIT_MS 1450
 
 #define MIN_START_ALTITUDE_M 0.75f
-#define MAX_START_ALTITUDE_M 2.05f
-#define MAX_MANEUVER_ALTITUDE_M 2.20f
+#define MAX_START_ALTITUDE_M 1.55f
+#define MAX_MANEUVER_ALTITUDE_M 1.70f
+#define MIN_DIRECT_CONTROL_ALTITUDE_M 0.12f
 #define MIN_START_VOLTAGE_V 3.50f
 #define MAX_START_TILT_DEG 10.0f
 #define MAX_BOOST_TILT_DEG 15.0f
 #define MIN_HOVER_THRUST 20000.0f
 #define MAX_HOVER_THRUST 55000.0f
-#define MAX_THRUST 60000.0f
-
 #define SPINUP_TIMEOUT_MS 180
 #define ROTATION_TIMEOUT_MS 900
 #define BRAKE_TIMEOUT_MS 500
 #define RECOVERY_OBSERVATION_MS 400
 #define SPINUP_READY_RATE_DEG_S 700.0f
-#define ROTATION_RATE_DEG_S 950.0f
-#define FINISH_RATE_DEG_S 250.0f
 #define BRAKE_READY_RATE_DEG_S 180.0f
 #define TARGET_ROTATION_DEG 335.0f
 #define MAX_ROTATION_DEG 410.0f
@@ -60,18 +62,23 @@
 #define MAX_BOOST_HEIGHT_MM 300
 #define MIN_BOOST_DURATION_MS 150
 #define MAX_BOOST_DURATION_MS 350
-#define MIN_BRAKE_START_DEG 80
-#define MAX_BRAKE_START_DEG 220
-#define MIN_COUNTER_RATE_DEG_S 600
-#define MAX_COUNTER_RATE_DEG_S 1200
+#define MIN_BRAKE_START_DEG 250
+#define MAX_BRAKE_START_DEG 330
 #define MIN_SPIN_THRUST_PERCENT 25
 #define MAX_SPIN_THRUST_PERCENT 55
 #define MIN_COAST_THRUST_PERCENT 15
 #define MAX_COAST_THRUST_PERCENT 35
 #define MIN_BRAKE_THRUST_PERCENT 30
-#define MAX_BRAKE_THRUST_PERCENT 60
+#define MAX_BRAKE_THRUST_PERCENT 80
+#define MIN_TORQUE_AUTHORITY_PERCENT 50
+#define MAX_TORQUE_AUTHORITY_PERCENT 95
 #define MIN_RECOVERY_DURATION_MS 250
 #define MAX_RECOVERY_DURATION_MS 500
+
+#define DIRECT_MOTOR_MAX_PWM 60000.0f
+#define PWM_TO_THRUST_A 0.091492681f
+#define PWM_TO_THRUST_B 0.067673604f
+#define QUAD_X_ARM_SCALE 0.707106781f
 
 typedef enum {
   flipStateIdle = 0,
@@ -119,11 +126,12 @@ static int8_t direction = 1;
 // and return to these guarded defaults after a power cycle.
 static uint16_t profileBoostMm = 100;
 static uint16_t profileBoostMs = 150;
-static uint16_t profileBrakeDeg = 100;
-static uint16_t profileCounterRate = 1200;
+static uint16_t profileBrakeDeg = 290;
 static uint8_t profileSpinPct = 40;
 static uint8_t profileCoastPct = 20;
-static uint8_t profileBrakePct = 60;
+static uint8_t profileBrakePct = 70;
+static uint8_t profileSpinTorquePct = 85;
+static uint8_t profileBrakeTorquePct = 85;
 static uint16_t profileRecoverMs = 500;
 
 static uint8_t flipState;
@@ -143,6 +151,11 @@ static float brakeEndRate;
 static float recoveryStartAltitude;
 static uint8_t acroPermitActive;
 static uint8_t immediateStopReady;
+static volatile bool directControlActive;
+static volatile bool resetPidAfterDirect;
+static volatile uint8_t directControlAbort;
+static volatile float directCollectiveForce;
+static volatile float directPitchTorque;
 
 static logVarId_t altitudeId;
 static logVarId_t batteryId;
@@ -150,10 +163,6 @@ static logVarId_t pitchId;
 static logVarId_t rollId;
 static logVarId_t pitchRateId;
 static logVarId_t thrustId;
-
-static float clampedThrust(const float thrust) {
-  return fminf(MAX_THRUST, fmaxf(0.0f, thrust));
-}
 
 static bool supervisorAllowsManeuver(void) {
   return supervisorIsFlying() && !supervisorIsLocked() &&
@@ -163,22 +172,6 @@ static bool supervisorAllowsManeuver(void) {
 static void updateManeuverExtrema(void) {
   minimumAltitude = fminf(minimumAltitude, logGetFloat(altitudeId));
   minimumVoltage = fminf(minimumVoltage, logGetFloat(batteryId));
-}
-
-static void sendRateSetpoint(const float pitchRate, const float thrust) {
-  setpoint_t setpoint;
-  memset(&setpoint, 0, sizeof(setpoint));
-
-  setpoint.mode.x = modeDisable;
-  setpoint.mode.y = modeDisable;
-  setpoint.mode.z = modeDisable;
-  setpoint.mode.roll = modeVelocity;
-  setpoint.mode.pitch = modeVelocity;
-  setpoint.mode.yaw = modeVelocity;
-  setpoint.attitudeRate.pitch = pitchRate;
-  setpoint.thrust = clampedThrust(thrust);
-
-  commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_EXTRX);
 }
 
 static void sendPositionSetpoint(const float targetAltitude) {
@@ -197,6 +190,105 @@ static void sendPositionSetpoint(const float targetAltitude) {
   commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_EXTRX);
 }
 
+static float motorForceFromPwm(const float pwm) {
+  const float normalizedPwm = pwm / 65535.0f;
+  return PWM_TO_THRUST_A * normalizedPwm * normalizedPwm +
+         PWM_TO_THRUST_B * normalizedPwm;
+}
+
+static float hoverForceFromPwm(const float hoverPwm) {
+  return 4.0f * motorForceFromPwm(hoverPwm);
+}
+
+static float maximumPitchTorque(const float collectiveForce) {
+  const float arm = QUAD_X_ARM_SCALE * ARM_LENGTH;
+  const float maximumCollectiveForce =
+    4.0f * motorForceFromPwm(DIRECT_MOTOR_MAX_PWM);
+  const float lowerMotorLimit = arm * collectiveForce;
+  const float upperMotorLimit =
+    arm * fmaxf(0.0f, maximumCollectiveForce - collectiveForce);
+  return fmaxf(0.0f, fminf(lowerMotorLimit, upperMotorLimit));
+}
+
+static void setDirectControl(
+  const float collectiveForce,
+  const float pitchTorque
+) {
+  directCollectiveForce = collectiveForce;
+  directPitchTorque = pitchTorque;
+}
+
+static void startDirectControl(void) {
+  directControlAbort = 0;
+  resetPidAfterDirect = false;
+  directControlActive = true;
+}
+
+static void stopDirectControl(void) {
+  directControlActive = false;
+  directCollectiveForce = 0.0f;
+  directPitchTorque = 0.0f;
+  resetPidAfterDirect = true;
+}
+
+void controllerOutOfTreeInit(void) {
+  controllerPidInit();
+}
+
+bool controllerOutOfTreeTest(void) {
+  return controllerPidTest();
+}
+
+void controllerOutOfTree(
+  control_t *control,
+  const setpoint_t *setpoint,
+  const sensorData_t *sensors,
+  const state_t *state,
+  const uint32_t tick
+) {
+  if (directControlActive) {
+    if (!supervisorAllowsManeuver() ||
+        state->position.z < MIN_DIRECT_CONTROL_ALTITUDE_M) {
+      directControlAbort = 1;
+      stopDirectControl();
+      memset(control, 0, sizeof(*control));
+      control->controlMode = controlModeForceTorque;
+      return;
+    }
+
+    control->controlMode = controlModeForceTorque;
+    control->thrustSi = directCollectiveForce;
+    control->torqueX = 0.0f;
+    control->torqueY = directPitchTorque;
+    control->torqueZ = 0.0f;
+    return;
+  }
+
+  // A direct-control safety abort remains latched until the next power cycle.
+  // This prevents one PID iteration from restoring thrust before appMain has
+  // observed the abort and completed the supervisor disarm.
+  if (directControlAbort != 0) {
+    memset(control, 0, sizeof(*control));
+    control->controlMode = controlModeForceTorque;
+    return;
+  }
+
+  if (resetPidAfterDirect) {
+    attitudeControllerResetAllPID(
+      state->attitude.roll,
+      state->attitude.pitch,
+      state->attitude.yaw
+    );
+    positionControllerResetAllPID(
+      state->position.x,
+      state->position.y,
+      state->position.z
+    );
+    resetPidAfterDirect = false;
+  }
+  controllerPid(control, setpoint, sensors, state, tick);
+}
+
 static bool isUprightWithin(const float toleranceDeg) {
   return fabsf(logGetFloat(rollId)) <= toleranceDeg &&
          fabsf(logGetFloat(pitchId)) <= toleranceDeg;
@@ -209,14 +301,16 @@ static bool profileIsValid(void) {
          profileBoostMs <= MAX_BOOST_DURATION_MS &&
          profileBrakeDeg >= MIN_BRAKE_START_DEG &&
          profileBrakeDeg <= MAX_BRAKE_START_DEG &&
-         profileCounterRate >= MIN_COUNTER_RATE_DEG_S &&
-         profileCounterRate <= MAX_COUNTER_RATE_DEG_S &&
          profileSpinPct >= MIN_SPIN_THRUST_PERCENT &&
          profileSpinPct <= MAX_SPIN_THRUST_PERCENT &&
          profileCoastPct >= MIN_COAST_THRUST_PERCENT &&
          profileCoastPct <= MAX_COAST_THRUST_PERCENT &&
          profileBrakePct >= MIN_BRAKE_THRUST_PERCENT &&
          profileBrakePct <= MAX_BRAKE_THRUST_PERCENT &&
+         profileSpinTorquePct >= MIN_TORQUE_AUTHORITY_PERCENT &&
+         profileSpinTorquePct <= MAX_TORQUE_AUTHORITY_PERCENT &&
+         profileBrakeTorquePct >= MIN_TORQUE_AUTHORITY_PERCENT &&
+         profileBrakeTorquePct <= MAX_TORQUE_AUTHORITY_PERCENT &&
          profileRecoverMs >= MIN_RECOVERY_DURATION_MS &&
          profileRecoverMs <= MAX_RECOVERY_DURATION_MS;
 }
@@ -276,11 +370,11 @@ static FlipResult runBoost(void) {
 }
 
 static float runRotationStep(
-  const float pitchRate,
-  const float thrust,
+  const float collectiveForce,
+  const float pitchTorque,
   const float directionSign
 ) {
-  sendRateSetpoint(pitchRate, thrust);
+  setDirectControl(collectiveForce, pitchTorque);
   const float effectivePitchRate = -logGetFloat(pitchRateId);
   const float directedPitchRate = directionSign * effectivePitchRate;
   const float stepSeconds = (float)LOOP_PERIOD_MS / 1000.0f;
@@ -295,16 +389,19 @@ static float runRotationStep(
 static RotationResult rotateWithBraking(const float hoverThrust) {
   TickType_t lastWakeTime = xTaskGetTickCount();
   const float directionSign = direction >= 0 ? 1.0f : -1.0f;
-  const float rateCommand = directionSign * ROTATION_RATE_DEG_S;
-  const float finishRateCommand = directionSign * FINISH_RATE_DEG_S;
-  const float counterRateCommand =
-    -directionSign * (float)profileCounterRate;
-  const float spinThrust =
-    hoverThrust * (float)profileSpinPct / 100.0f;
-  const float coastThrust =
-    hoverThrust * (float)profileCoastPct / 100.0f;
-  const float brakeThrust =
-    hoverThrust * (float)profileBrakePct / 100.0f;
+  const float hoverForce = hoverForceFromPwm(hoverThrust);
+  const float spinForce =
+    hoverForce * (float)profileSpinPct / 100.0f;
+  const float coastForce =
+    hoverForce * (float)profileCoastPct / 100.0f;
+  const float brakeForce =
+    hoverForce * (float)profileBrakePct / 100.0f;
+  const float spinTorque =
+    -directionSign * maximumPitchTorque(spinForce) *
+    (float)profileSpinTorquePct / 100.0f;
+  const float brakeTorque =
+    directionSign * maximumPitchTorque(brakeForce) *
+    (float)profileBrakeTorquePct / 100.0f;
   uint32_t rotationElapsedMs = 0;
   float directedRate = 0.0f;
 
@@ -313,15 +410,16 @@ static RotationResult rotateWithBraking(const float hoverThrust) {
   peakPitchRate = 0.0f;
   brakeStartRotation = 0.0f;
   brakeEndRate = 0.0f;
+  startDirectControl();
 
   flipState = flipStateSpinup;
   while (rotationElapsedMs < SPINUP_TIMEOUT_MS) {
-    if (!supervisorAllowsManeuver()) {
+    if (!supervisorAllowsManeuver() || directControlAbort != 0) {
       return rotationSupervisorStopped;
     }
     directedRate = runRotationStep(
-      rateCommand,
-      spinThrust,
+      spinForce,
+      spinTorque,
       directionSign
     );
     vTaskDelayUntil(&lastWakeTime, M2T(LOOP_PERIOD_MS));
@@ -333,15 +431,15 @@ static RotationResult rotateWithBraking(const float hoverThrust) {
 
   flipState = flipStateCoast;
   while (rotationDeg < (float)profileBrakeDeg) {
-    if (!supervisorAllowsManeuver()) {
+    if (!supervisorAllowsManeuver() || directControlAbort != 0) {
       return rotationSupervisorStopped;
     }
     if (rotationElapsedMs >= ROTATION_TIMEOUT_MS) {
       return rotationTimedOut;
     }
     directedRate = runRotationStep(
-      rateCommand,
-      coastThrust,
+      coastForce,
+      0.0f,
       directionSign
     );
     vTaskDelayUntil(&lastWakeTime, M2T(LOOP_PERIOD_MS));
@@ -352,19 +450,17 @@ static RotationResult rotateWithBraking(const float hoverThrust) {
   brakeStartRotation = rotationDeg;
   const uint32_t brakeStartedMs = rotationElapsedMs;
   while (rotationElapsedMs - brakeStartedMs < BRAKE_TIMEOUT_MS) {
-    if (!supervisorAllowsManeuver()) {
+    if (!supervisorAllowsManeuver() || directControlAbort != 0) {
       return rotationSupervisorStopped;
     }
 
-    float commandedRate = 0.0f;
+    float commandedTorque = 0.0f;
     if (directedRate > BRAKE_READY_RATE_DEG_S) {
-      commandedRate = counterRateCommand;
-    } else if (rotationDeg < TARGET_ROTATION_DEG) {
-      commandedRate = finishRateCommand;
+      commandedTorque = brakeTorque;
     }
     directedRate = runRotationStep(
-      commandedRate,
-      brakeThrust,
+      brakeForce,
+      commandedTorque,
       directionSign
     );
     brakeEndRate = directedRate;
@@ -396,7 +492,9 @@ static bool runPositionRecovery(void) {
   recoveryStartAltitude = logGetFloat(altitudeId);
 
   for (uint32_t i = 0; i < iterations; ++i) {
-    if (!supervisorAllowsManeuver()) {
+    if (!supervisorAllowsManeuver() ||
+        logGetFloat(altitudeId) < MIN_DIRECT_CONTROL_ALTITUDE_M ||
+        !isUprightWithin(60.0f)) {
       return false;
     }
     sendPositionSetpoint(startAltitude);
@@ -429,6 +527,7 @@ static bool observeRecovery(void) {
 }
 
 static void disarmAndReleaseControl(void) {
+  stopDirectControl();
   supervisorRequestArming(false);
   motorsStop();
   releaseControl();
@@ -483,6 +582,7 @@ static void performFlip(void) {
   acroPermitActive = 1;
 
   const RotationResult rotationResult = rotateWithBraking(hoverThrust);
+  stopDirectControl();
   if (rotationResult != rotationCompleted) {
     if (rotationResult == rotationSupervisorStopped) {
       failRotationSafely(flipResultSupervisorStopped);
@@ -602,10 +702,11 @@ PARAM_ADD(PARAM_INT8, direction, &direction)
 PARAM_ADD(PARAM_UINT16, boostMm, &profileBoostMm)
 PARAM_ADD(PARAM_UINT16, boostMs, &profileBoostMs)
 PARAM_ADD(PARAM_UINT16, brakeDeg, &profileBrakeDeg)
-PARAM_ADD(PARAM_UINT16, brakeRate, &profileCounterRate)
 PARAM_ADD(PARAM_UINT8, spinPct, &profileSpinPct)
 PARAM_ADD(PARAM_UINT8, coastPct, &profileCoastPct)
 PARAM_ADD(PARAM_UINT8, brakePct, &profileBrakePct)
+PARAM_ADD(PARAM_UINT8, spinTorque, &profileSpinTorquePct)
+PARAM_ADD(PARAM_UINT8, brakeTorque, &profileBrakeTorquePct)
 PARAM_ADD(PARAM_UINT16, recoverMs, &profileRecoverMs)
 PARAM_GROUP_STOP(bumblebee)
 

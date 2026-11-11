@@ -131,7 +131,7 @@ overhead.
 ./fly --flight flip
 ```
 
-The command stages at 1.15 m, learns the current airframe's hover thrust, and
+The command stages at 1.50 m, learns the current airframe's hover thrust, and
 asks for exact `ACRO` and `FLIP` confirmations before triggering anything. The
 maneuver triggers only after a one-second low-drift window and aborts if the
 staging hover moves more than 0.5 m from takeoff. It then runs on the Crazyflie
@@ -141,16 +141,15 @@ remain active. A radio-loss watchdog cuts motor power if its Mac heartbeat
 disappears. Power-cycle the Crazyflie after every Acro run to reset that
 watchdog.
 
-Version 5 completed a full rotation on the AI-deck and Flow-deck airframe but
-lost too much height to recover safely. Version 6's direct lift measurement
-then destabilized sideways. Firmware v7 introduced a phase-controlled profile,
-but padded tests showed that passive zero-rate braking still left more than
-430°/s of pitch rate after a complete rotation. Firmware v8 begins braking
-earlier with an active counter-rotation command and uses an onboard disarm for
-every unstable abort, so shutdown no longer depends on the radio or Mac. The
-Mac records live altitude, tilt, vertical speed, phase transitions, motor
-saturation, and battery sag. Guarded phase values are sent before every run.
-Do not restore an older Acro profile.
+Padded tests of firmware v7–v10 showed that the stock rate PID could complete
+the rotation but could not stop it before the airframe reached the floor.
+Firmware v11 keeps the stock PID for normal flight and uses a guarded direct
+thrust-and-torque controller only during the rotation. It adds a 12 cm airborne
+cutoff, latches any direct-control abort until the next power cycle, and keeps
+the onboard disarm independent of the radio and Mac. The Mac records live
+altitude, tilt, vertical speed, phase transitions, motor saturation, and
+battery sag. Guarded phase values are sent before every run. Do not restore an
+older Acro profile.
 
 Safe flights and the lift test land at 3.50 V. Any future flip profile must also
 pass an under-load battery check before its rotation can begin.
