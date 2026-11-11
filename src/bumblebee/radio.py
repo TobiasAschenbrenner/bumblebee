@@ -27,7 +27,15 @@ def resolve_radio_uri(explicit_uri: str | None = None) -> str:
 def connected_crazyflie(uri: str) -> Iterator[SyncCrazyflie]:
     cache = cache_directory()
     cache.mkdir(parents=True, exist_ok=True)
-    connection = SyncCrazyflie(uri, cf=Crazyflie(rw_cache=str(cache)))
+    crazyflie = Crazyflie(rw_cache=str(cache))
+
+    # Bumblebee does not consume cflib's optional latency measurements. Their
+    # 10 Hz ping worker can fill the radio queue after a link interruption and
+    # then tries to join itself from its own error callback.
+    crazyflie.link_statistics.start = lambda: None
+    crazyflie.link_statistics.stop = lambda: None
+
+    connection = SyncCrazyflie(uri, cf=crazyflie)
     cflib_logger = logging.getLogger("cflib.crazyflie")
     logger_was_disabled = cflib_logger.disabled
     try:

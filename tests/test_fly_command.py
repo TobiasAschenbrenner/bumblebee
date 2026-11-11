@@ -8,7 +8,7 @@ from bumblebee.models import FlightMode
 
 
 class FlyCommandTests(TestCase):
-    def test_confirmation_happens_without_an_open_radio_link(self) -> None:
+    def test_preflight_confirmation_and_flight_share_one_radio_link(self) -> None:
         flight = Mock()
         flight.title = "Test flip"
         flight.requirements = Mock()
@@ -41,7 +41,7 @@ class FlyCommandTests(TestCase):
                 radio_open = False
 
         def confirm(*_args: object, **_kwargs: object) -> str:
-            self.assertFalse(radio_open)
+            self.assertTrue(radio_open)
             return "ACRO" if confirm.call_count == 1 else "FLIP"
 
         confirm.call_count = 0
@@ -68,8 +68,8 @@ class FlyCommandTests(TestCase):
             result = fly.main([])
 
         self.assertEqual(0, result)
-        self.assertEqual(2, collect.call_count)
-        self.assertEqual(2, require.call_count)
+        self.assertEqual(1, collect.call_count)
+        self.assertEqual(1, require.call_count)
         flight.run.assert_called_once()
         context = flight.run.call_args.args[2]
         self.assertEqual(FlightMode.ACRO, context.mode)
