@@ -31,7 +31,7 @@
 #define DEBUG_MODULE "BUMBLEBEE"
 #include "debug.h"
 
-#define APP_VERSION 16
+#define APP_VERSION 17
 #define FLIP_REQUEST_MAGIC 0xB33F
 #define LIFT_TEST_REQUEST_MAGIC 0xB11F
 #define LOOP_PERIOD_MS 5
@@ -41,6 +41,8 @@
 #define MAX_START_ALTITUDE_M 1.65f
 #define MAX_MANEUVER_ALTITUDE_M 1.70f
 #define MIN_DIRECT_CONTROL_ALTITUDE_M 0.12f
+#define DIRECT_CONTROL_IMPACT_ACCELERATION_G 4.0f
+#define DIRECT_CONTROL_IMPACT_MIN_ROTATION_DEG 60.0f
 #define MIN_START_VOLTAGE_V 3.50f
 #define MAX_START_TILT_DEG 10.0f
 #define MAX_BOOST_TILT_DEG 15.0f
@@ -50,7 +52,8 @@
 #define ROTATION_TIMEOUT_MS 900
 #define BRAKE_TIMEOUT_MS 500
 #define RECOVERY_OBSERVATION_MS 400
-#define SPINUP_READY_RATE_DEG_S 600.0f
+#define SPINUP_READY_RATE_DEG_S 450.0f
+#define SPINUP_READY_ROTATION_DEG 10.0f
 #define BRAKE_READY_RATE_DEG_S 180.0f
 #define TARGET_ROTATION_DEG 335.0f
 #define MAX_ROTATION_DEG 410.0f
@@ -110,6 +113,7 @@ typedef enum {
   flipResultBrakingFailed = 14,
   flipResultAltitudeCutoff = 15,
   flipResultPermitExpired = 16,
+  flipResultImpact = 17,
 } FlipResult;
 
 typedef enum {
@@ -117,6 +121,7 @@ typedef enum {
   directAbortNotFlying = 1,
   directAbortLocked = 2,
   directAbortCrashed = 3,
+  directAbortImpact = 4,
   directAbortPermitExpired = 5,
 } DirectAbortReason;
 
@@ -140,7 +145,7 @@ static uint16_t profileBrakeDeg = 140;
 static uint8_t profileSpinPct = 40;
 static uint8_t profileCoastPct = 20;
 static uint8_t profileBrakePct = 70;
-static uint8_t profileSpinTorquePct = 55;
+static uint8_t profileSpinTorquePct = 85;
 static uint8_t profileBrakeTorquePct = 95;
 static uint16_t profileRecoverMs = 500;
 
@@ -166,6 +171,7 @@ static volatile bool resetPidAfterDirect;
 static volatile uint8_t directControlAbort;
 static volatile float directCollectiveForce;
 static volatile float directPitchTorque;
+static volatile float directControlRotationDeg;
 
 static logVarId_t altitudeId;
 static logVarId_t batteryId;
@@ -179,7 +185,7 @@ static bool supervisorAllowsManeuver(void) {
          !supervisorIsCrashed();
 }
 
-static DirectAbortReason directAbortReason(void) {
+static DirectAbortReason directAbortReason(const sensorData_t *sensors) {
   if (supervisorIsLocked()) {
     return directAbortLocked;
   }
@@ -191,6 +197,17 @@ static DirectAbortReason directAbortReason(void) {
   }
   if (!supervisorIsAcroPermitActive()) {
     return directAbortPermitExpired;
+  }
+
+  if (directControlRotationDeg >= DIRECT_CONTROL_IMPACT_MIN_ROTATION_DEG) {
+    const float accelerationMagnitude = sqrtf(
+      sensors->acc.x * sensors->acc.x +
+      sensors->acc.y * sensors->acc.y +
+      sensors->acc.z * sensors->acc.z
+    );
+    if (accelerationMagnitude >= DIRECT_CONTROL_IMPACT_ACCELERATION_G) {
+      return directAbortImpact;
+    }
   }
   return directAbortNone;
 }
@@ -246,6 +263,7 @@ static void setDirectControl(
 
 static void startDirectControl(void) {
   directControlAbort = 0;
+  directControlRotationDeg = 0.0f;
   resetPidAfterDirect = false;
   directControlActive = true;
 }
@@ -273,7 +291,7 @@ void controllerOutOfTree(
   const uint32_t tick
 ) {
   if (directControlActive) {
-    const DirectAbortReason abortReason = directAbortReason();
+    const DirectAbortReason abortReason = directAbortReason(sensors);
     if (abortReason != directAbortNone) {
       directControlAbort = (uint8_t)abortReason;
       stopDirectControl();
@@ -407,6 +425,7 @@ static float runRotationStep(
 
   rotationDeg += directedPitchRate * stepSeconds;
   rawRotationDeg += fabsf(effectivePitchRate) * stepSeconds;
+  directControlRotationDeg = rawRotationDeg;
   peakPitchRate = fmaxf(peakPitchRate, directedPitchRate);
   updateManeuverExtrema();
   return directedPitchRate;
@@ -450,7 +469,8 @@ static RotationResult rotateWithBraking(const float hoverThrust) {
     );
     vTaskDelayUntil(&lastWakeTime, M2T(LOOP_PERIOD_MS));
     rotationElapsedMs += LOOP_PERIOD_MS;
-    if (directedRate >= SPINUP_READY_RATE_DEG_S && rotationDeg >= 30.0f) {
+    if (directedRate >= SPINUP_READY_RATE_DEG_S &&
+        rotationDeg >= SPINUP_READY_ROTATION_DEG) {
       break;
     }
   }
@@ -613,6 +633,8 @@ static void performFlip(void) {
     if (rotationResult == rotationSupervisorStopped) {
       if (directControlAbort == directAbortPermitExpired) {
         failRotationSafely(flipResultPermitExpired);
+      } else if (directControlAbort == directAbortImpact) {
+        failRotationSafely(flipResultImpact);
       } else {
         failRotationSafely(flipResultSupervisorStopped);
       }

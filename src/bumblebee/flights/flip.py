@@ -66,6 +66,7 @@ FLIP_RESULT_MESSAGES = {
     14: "The rotation could not be slowed near the upright attitude.",
     15: "The upright low-altitude motor cutoff stopped direct control.",
     16: "The time-limited Acro permit expired during direct control.",
+    17: "The onboard impact detector stopped direct control.",
 }
 
 MOTOR_PWM_MAX = 65_535
@@ -92,7 +93,7 @@ class FlipProfile:
     spin_thrust_percent: int = 40
     coast_thrust_percent: int = 20
     brake_thrust_percent: int = 70
-    spin_torque_percent: int = 55
+    spin_torque_percent: int = 85
     brake_torque_percent: int = 95
     recovery_duration_ms: int = 500
 
@@ -200,7 +201,7 @@ class FlipFlight:
     requirements_label = "Flow V2 · Acro firmware"
     requirements = FlightRequirements(
         flow_deck=True,
-        minimum_acro_firmware_version=16,
+        minimum_acro_firmware_version=17,
     )
     requires_acro = True
     confirmation_word = "FLIP"

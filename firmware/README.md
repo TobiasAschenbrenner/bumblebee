@@ -126,6 +126,13 @@ padded floor, but entered braking at a 1269 deg/s peak and still measured
 910 deg/s when braking timed out. Version 16 reduces spin torque authority from
 85% to 55% and hands off from spin-up at 600 instead of 700 deg/s. Early 140
 degree braking and 95% brake authority remain unchanged.
+Version 16 completed a full forward rotation physically but spent too long in
+the reduced spin phase and contacted the floor while braking was still active;
+the impact then reversed the logged angular direction. Version 17 restores the
+85% spin pulse but ends it at 450 deg/s and 10 degrees, before motor lag can
+build the previous peak rate. It also latches direct control off after a 4 g
+impact once at least 60 degrees of rotation has begun, independent of inverted
+altitude estimates.
 
 ## Restore official firmware
 
