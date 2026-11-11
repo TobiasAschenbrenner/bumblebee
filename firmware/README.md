@@ -116,6 +116,11 @@ altitude shutdown from the bounded direct-control window entirely and retains
 the 12 cm check for upright position recovery. It also starts direct-torque
 braking at 250 degrees instead of 290 degrees after v13 measured a 1450 deg/s
 peak pitch rate.
+Version 14 reached braking at 251 degrees and reduced pitch rate from 1400 to
+742 deg/s, but still crossed the guarded 410-degree limit. Version 15 uses that
+measured deceleration to begin braking at 140 degrees and raises only the brake
+torque authority from 85% to the guarded 95% maximum. The spin phase and all
+other flight and watchdog limits remain unchanged.
 
 ## Restore official firmware
 

@@ -24,7 +24,7 @@ class FlipFlightTests(TestCase):
         flight = FlipFlight()
 
         self.assertTrue(flight.requires_acro)
-        self.assertEqual(14, flight.requirements.minimum_acro_firmware_version)
+        self.assertEqual(15, flight.requirements.minimum_acro_firmware_version)
         self.assertEqual("FLIP", flight.confirmation_word)
         self.assertEqual(FlightMode.ACRO.value, "acro")
 
@@ -50,9 +50,9 @@ class FlipFlightTests(TestCase):
 
         self.assertEqual(1.5, settings.height)
         self.assertEqual(PHASED_PROFILE, settings.profile)
-        self.assertEqual(250, settings.profile.brake_start_degrees)
+        self.assertEqual(140, settings.profile.brake_start_degrees)
         self.assertEqual(85, settings.profile.spin_torque_percent)
-        self.assertEqual(85, settings.profile.brake_torque_percent)
+        self.assertEqual(95, settings.profile.brake_torque_percent)
 
     @patch("bumblebee.flights.flip.time.sleep")
     def test_trigger_sets_direction_before_magic_request(self, sleep: Mock) -> None:
@@ -64,12 +64,12 @@ class FlipFlightTests(TestCase):
             [
                 call("bumblebee.boostMm", "100"),
                 call("bumblebee.boostMs", "150"),
-                call("bumblebee.brakeDeg", "250"),
+                call("bumblebee.brakeDeg", "140"),
                 call("bumblebee.spinPct", "40"),
                 call("bumblebee.coastPct", "20"),
                 call("bumblebee.brakePct", "70"),
                 call("bumblebee.spinTorque", "85"),
-                call("bumblebee.brakeTorque", "85"),
+                call("bumblebee.brakeTorque", "95"),
                 call("bumblebee.recoverMs", "500"),
                 call("bumblebee.direction", "1"),
                 call("bumblebee.flipRequest", str(FLIP_REQUEST_MAGIC)),

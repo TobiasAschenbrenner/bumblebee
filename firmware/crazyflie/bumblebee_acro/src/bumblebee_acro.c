@@ -31,7 +31,7 @@
 #define DEBUG_MODULE "BUMBLEBEE"
 #include "debug.h"
 
-#define APP_VERSION 14
+#define APP_VERSION 15
 #define FLIP_REQUEST_MAGIC 0xB33F
 #define LIFT_TEST_REQUEST_MAGIC 0xB11F
 #define LOOP_PERIOD_MS 5
@@ -62,7 +62,7 @@
 #define MAX_BOOST_HEIGHT_MM 300
 #define MIN_BOOST_DURATION_MS 150
 #define MAX_BOOST_DURATION_MS 350
-#define MIN_BRAKE_START_DEG 250
+#define MIN_BRAKE_START_DEG 100
 #define MAX_BRAKE_START_DEG 330
 #define MIN_SPIN_THRUST_PERCENT 25
 #define MAX_SPIN_THRUST_PERCENT 55
@@ -136,12 +136,12 @@ static int8_t direction = 1;
 // and return to these guarded defaults after a power cycle.
 static uint16_t profileBoostMm = 100;
 static uint16_t profileBoostMs = 150;
-static uint16_t profileBrakeDeg = 250;
+static uint16_t profileBrakeDeg = 140;
 static uint8_t profileSpinPct = 40;
 static uint8_t profileCoastPct = 20;
 static uint8_t profileBrakePct = 70;
 static uint8_t profileSpinTorquePct = 85;
-static uint8_t profileBrakeTorquePct = 85;
+static uint8_t profileBrakeTorquePct = 95;
 static uint16_t profileRecoverMs = 500;
 
 static uint8_t flipState;
