@@ -145,6 +145,12 @@ high-rate attitude estimate missed the strict 25-degree gate. Version 19 keeps
 that strict signed-angle path and adds a guarded raw-travel path requiring at
 least 320 degrees, at most 180 deg/s pitch rate, and attitude within 60 degrees
 of upright before the same stabilized recovery boost can start.
+Version 19 again finished visually upright but the estimator never entered the
+60-degree gate before impact. Version 20 accepts the raw-travel path only inside
+a 320–380 degree window and below 180 deg/s, then applies an estimator-independent
+120% collective pulse with zero pitch torque for 75–150 ms. It hands off to the
+stock PID and existing 200 ms thrust floor only if the attitude estimate settles
+within 60 degrees during that pulse. Impact cutoff remains active throughout.
 
 ## Restore official firmware
 

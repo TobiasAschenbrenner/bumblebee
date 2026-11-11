@@ -24,7 +24,7 @@ class FlipFlightTests(TestCase):
         flight = FlipFlight()
 
         self.assertTrue(flight.requires_acro)
-        self.assertEqual(19, flight.requirements.minimum_acro_firmware_version)
+        self.assertEqual(20, flight.requirements.minimum_acro_firmware_version)
         self.assertEqual("FLIP", flight.confirmation_word)
         self.assertEqual(FlightMode.ACRO.value, "acro")
 

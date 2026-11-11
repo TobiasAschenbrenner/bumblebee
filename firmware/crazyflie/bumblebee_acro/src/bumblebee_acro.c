@@ -31,7 +31,7 @@
 #define DEBUG_MODULE "BUMBLEBEE"
 #include "debug.h"
 
-#define APP_VERSION 19
+#define APP_VERSION 20
 #define FLIP_REQUEST_MAGIC 0xB33F
 #define LIFT_TEST_REQUEST_MAGIC 0xB11F
 #define LOOP_PERIOD_MS 5
@@ -54,11 +54,15 @@
 #define RECOVERY_OBSERVATION_MS 400
 #define RECOVERY_THRUST_FLOOR_MS 200
 #define RECOVERY_THRUST_FLOOR_PERCENT 120.0f
+#define RAW_RECOVERY_MIN_LIFT_MS 75
+#define RAW_RECOVERY_MAX_LIFT_MS 150
+#define RAW_RECOVERY_LIFT_PERCENT 120.0f
 #define SPINUP_READY_RATE_DEG_S 450.0f
 #define SPINUP_READY_ROTATION_DEG 10.0f
 #define BRAKE_READY_RATE_DEG_S 180.0f
 #define TARGET_ROTATION_DEG 335.0f
 #define MIN_RECOVERY_RAW_ROTATION_DEG 320.0f
+#define MAX_RECOVERY_RAW_ROTATION_DEG 380.0f
 #define MAX_ROTATION_DEG 410.0f
 #define UPRIGHT_TOLERANCE_DEG 25.0f
 #define RAW_RECOVERY_UPRIGHT_TOLERANCE_DEG 60.0f
@@ -178,6 +182,7 @@ static volatile float directCollectiveForce;
 static volatile float directPitchTorque;
 static volatile float directControlRotationDeg;
 static uint8_t recoveryBoostUsed;
+static uint8_t rawRecoveryPathUsed;
 
 static logVarId_t altitudeId;
 static logVarId_t batteryId;
@@ -542,9 +547,10 @@ static RotationResult rotateWithBraking(const float hoverThrust) {
       isUprightWithin(UPRIGHT_TOLERANCE_DEG);
     const bool rawRotationReady =
       rawRotationDeg >= MIN_RECOVERY_RAW_ROTATION_DEG &&
-      isUprightWithin(RAW_RECOVERY_UPRIGHT_TOLERANCE_DEG);
+      rawRotationDeg <= MAX_RECOVERY_RAW_ROTATION_DEG;
     if ((signedRotationReady || rawRotationReady) &&
         fabsf(directedRate) <= BRAKE_READY_RATE_DEG_S) {
+      rawRecoveryPathUsed = !signedRotationReady && rawRotationReady;
       rotationEndRoll = logGetFloat(rollId);
       rotationEndPitch = logGetFloat(pitchId);
       return rotationCompleted;
@@ -561,6 +567,31 @@ static RotationResult rotateWithBraking(const float hoverThrust) {
   rotationEndRoll = logGetFloat(rollId);
   rotationEndPitch = logGetFloat(pitchId);
   return rotationBrakingFailed;
+}
+
+static bool runRawRecoveryLift(const float hoverThrust) {
+  TickType_t lastWakeTime = xTaskGetTickCount();
+  const uint32_t iterations = RAW_RECOVERY_MAX_LIFT_MS / LOOP_PERIOD_MS;
+  const float liftForce =
+    hoverForceFromPwm(hoverThrust) * RAW_RECOVERY_LIFT_PERCENT / 100.0f;
+
+  recoveryBoostUsed = 1;
+  setDirectControl(liftForce, 0.0f);
+  for (uint32_t i = 0; i < iterations; ++i) {
+    if (directControlAbort != directAbortNone ||
+        !supervisorAllowsManeuver()) {
+      return false;
+    }
+    updateManeuverExtrema();
+    vTaskDelayUntil(&lastWakeTime, M2T(LOOP_PERIOD_MS));
+    const uint32_t elapsedMs = (i + 1) * LOOP_PERIOD_MS;
+    if (elapsedMs >= RAW_RECOVERY_MIN_LIFT_MS &&
+        isUprightWithin(RAW_RECOVERY_UPRIGHT_TOLERANCE_DEG)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 static bool runPositionRecovery(void) {
@@ -647,6 +678,7 @@ static void performFlip(void) {
   rotationEndPitch = 0.0f;
   recoveryBoostActive = false;
   recoveryBoostUsed = 0;
+  rawRecoveryPathUsed = 0;
 
   flipState = flipStateBoost;
   flipResult = runBoost();
@@ -670,8 +702,8 @@ static void performFlip(void) {
   acroPermitActive = 1;
 
   const RotationResult rotationResult = rotateWithBraking(hoverThrust);
-  stopDirectControl();
   if (rotationResult != rotationCompleted) {
+    stopDirectControl();
     if (rotationResult == rotationSupervisorStopped) {
       if (directControlAbort == directAbortPermitExpired) {
         failRotationSafely(flipResultPermitExpired);
@@ -691,6 +723,15 @@ static void performFlip(void) {
   }
 
   flipState = flipStateRecover;
+  if (rawRecoveryPathUsed != 0 && !runRawRecoveryLift(hoverThrust)) {
+    stopDirectControl();
+    flipResult = directControlAbort == directAbortImpact ?
+      flipResultImpact : flipResultRecoveryFailed;
+    flipState = flipStateAborted;
+    disarmAndReleaseControl();
+    return;
+  }
+  stopDirectControl();
   const bool recovered = runPositionRecovery();
   if (!recovered) {
     if (directControlAbort == directAbortImpact) {
@@ -827,4 +868,5 @@ LOG_ADD(LOG_FLOAT, recoveryStart, &recoveryStartAltitude)
 LOG_ADD(LOG_UINT8, acroPermit, &acroPermitActive)
 LOG_ADD(LOG_UINT8, directAbort, &directControlAbort)
 LOG_ADD(LOG_UINT8, recoveryBoost, &recoveryBoostUsed)
+LOG_ADD(LOG_UINT8, rawRecovery, &rawRecoveryPathUsed)
 LOG_GROUP_STOP(bumblebee)
