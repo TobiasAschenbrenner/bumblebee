@@ -31,7 +31,7 @@
 #define DEBUG_MODULE "BUMBLEBEE"
 #include "debug.h"
 
-#define APP_VERSION 15
+#define APP_VERSION 16
 #define FLIP_REQUEST_MAGIC 0xB33F
 #define LIFT_TEST_REQUEST_MAGIC 0xB11F
 #define LOOP_PERIOD_MS 5
@@ -50,7 +50,7 @@
 #define ROTATION_TIMEOUT_MS 900
 #define BRAKE_TIMEOUT_MS 500
 #define RECOVERY_OBSERVATION_MS 400
-#define SPINUP_READY_RATE_DEG_S 700.0f
+#define SPINUP_READY_RATE_DEG_S 600.0f
 #define BRAKE_READY_RATE_DEG_S 180.0f
 #define TARGET_ROTATION_DEG 335.0f
 #define MAX_ROTATION_DEG 410.0f
@@ -140,7 +140,7 @@ static uint16_t profileBrakeDeg = 140;
 static uint8_t profileSpinPct = 40;
 static uint8_t profileCoastPct = 20;
 static uint8_t profileBrakePct = 70;
-static uint8_t profileSpinTorquePct = 85;
+static uint8_t profileSpinTorquePct = 55;
 static uint8_t profileBrakeTorquePct = 95;
 static uint16_t profileRecoverMs = 500;
 

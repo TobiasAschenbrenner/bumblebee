@@ -121,6 +121,11 @@ Version 14 reached braking at 251 degrees and reduced pitch rate from 1400 to
 measured deceleration to begin braking at 140 degrees and raises only the brake
 torque authority from 85% to the guarded 95% maximum. The spin phase and all
 other flight and watchdog limits remain unchanged.
+Version 15 completed a rotation and made a soft, immediate-stop contact with the
+padded floor, but entered braking at a 1269 deg/s peak and still measured
+910 deg/s when braking timed out. Version 16 reduces spin torque authority from
+85% to 55% and hands off from spin-up at 600 instead of 700 deg/s. Early 140
+degree braking and 95% brake authority remain unchanged.
 
 ## Restore official firmware
 

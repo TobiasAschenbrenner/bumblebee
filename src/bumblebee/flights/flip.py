@@ -92,7 +92,7 @@ class FlipProfile:
     spin_thrust_percent: int = 40
     coast_thrust_percent: int = 20
     brake_thrust_percent: int = 70
-    spin_torque_percent: int = 85
+    spin_torque_percent: int = 55
     brake_torque_percent: int = 95
     recovery_duration_ms: int = 500
 
@@ -200,7 +200,7 @@ class FlipFlight:
     requirements_label = "Flow V2 · Acro firmware"
     requirements = FlightRequirements(
         flow_deck=True,
-        minimum_acro_firmware_version=15,
+        minimum_acro_firmware_version=16,
     )
     requires_acro = True
     confirmation_word = "FLIP"
