@@ -110,6 +110,12 @@ attitude is within 45 degrees of upright. The first v12 rotation stopped near
 inversion, where Flow/Kalman altitude is not a trustworthy ground-proximity
 signal. Version 13 also distinguishes an upright altitude cutoff and an expired
 Acro permit from a supervisor stop in its onboard result telemetry.
+The first v13 test confirmed that both altitude and estimated attitude can jump
+to false ground/upright values during the high-rate rotation. Version 14 removes
+altitude shutdown from the bounded direct-control window entirely and retains
+the 12 cm check for upright position recovery. It also starts direct-torque
+braking at 250 degrees instead of 290 degrees after v13 measured a 1450 deg/s
+peak pitch rate.
 
 ## Restore official firmware
 

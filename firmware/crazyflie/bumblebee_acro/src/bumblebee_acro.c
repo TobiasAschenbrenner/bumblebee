@@ -31,7 +31,7 @@
 #define DEBUG_MODULE "BUMBLEBEE"
 #include "debug.h"
 
-#define APP_VERSION 13
+#define APP_VERSION 14
 #define FLIP_REQUEST_MAGIC 0xB33F
 #define LIFT_TEST_REQUEST_MAGIC 0xB11F
 #define LOOP_PERIOD_MS 5
@@ -41,7 +41,6 @@
 #define MAX_START_ALTITUDE_M 1.65f
 #define MAX_MANEUVER_ALTITUDE_M 1.70f
 #define MIN_DIRECT_CONTROL_ALTITUDE_M 0.12f
-#define ALTITUDE_CUTOFF_UPRIGHT_TOLERANCE_DEG 45.0f
 #define MIN_START_VOLTAGE_V 3.50f
 #define MAX_START_TILT_DEG 10.0f
 #define MAX_BOOST_TILT_DEG 15.0f
@@ -118,7 +117,6 @@ typedef enum {
   directAbortNotFlying = 1,
   directAbortLocked = 2,
   directAbortCrashed = 3,
-  directAbortAltitude = 4,
   directAbortPermitExpired = 5,
 } DirectAbortReason;
 
@@ -138,7 +136,7 @@ static int8_t direction = 1;
 // and return to these guarded defaults after a power cycle.
 static uint16_t profileBoostMm = 100;
 static uint16_t profileBoostMs = 150;
-static uint16_t profileBrakeDeg = 290;
+static uint16_t profileBrakeDeg = 250;
 static uint8_t profileSpinPct = 40;
 static uint8_t profileCoastPct = 20;
 static uint8_t profileBrakePct = 70;
@@ -181,7 +179,7 @@ static bool supervisorAllowsManeuver(void) {
          !supervisorIsCrashed();
 }
 
-static DirectAbortReason directAbortReason(const state_t *state) {
+static DirectAbortReason directAbortReason(void) {
   if (supervisorIsLocked()) {
     return directAbortLocked;
   }
@@ -193,13 +191,6 @@ static DirectAbortReason directAbortReason(const state_t *state) {
   }
   if (!supervisorIsAcroPermitActive()) {
     return directAbortPermitExpired;
-  }
-
-  const bool nearUpright =
-    fabsf(state->attitude.roll) <= ALTITUDE_CUTOFF_UPRIGHT_TOLERANCE_DEG &&
-    fabsf(state->attitude.pitch) <= ALTITUDE_CUTOFF_UPRIGHT_TOLERANCE_DEG;
-  if (nearUpright && state->position.z < MIN_DIRECT_CONTROL_ALTITUDE_M) {
-    return directAbortAltitude;
   }
   return directAbortNone;
 }
@@ -282,7 +273,7 @@ void controllerOutOfTree(
   const uint32_t tick
 ) {
   if (directControlActive) {
-    const DirectAbortReason abortReason = directAbortReason(state);
+    const DirectAbortReason abortReason = directAbortReason();
     if (abortReason != directAbortNone) {
       directControlAbort = (uint8_t)abortReason;
       stopDirectControl();
@@ -620,9 +611,7 @@ static void performFlip(void) {
   stopDirectControl();
   if (rotationResult != rotationCompleted) {
     if (rotationResult == rotationSupervisorStopped) {
-      if (directControlAbort == directAbortAltitude) {
-        failRotationSafely(flipResultAltitudeCutoff);
-      } else if (directControlAbort == directAbortPermitExpired) {
+      if (directControlAbort == directAbortPermitExpired) {
         failRotationSafely(flipResultPermitExpired);
       } else {
         failRotationSafely(flipResultSupervisorStopped);
